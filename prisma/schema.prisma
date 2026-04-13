@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppConfig {
+  id                   Int      @id
+  whatsappPhoneNumberId String?
+  whatsappAccessToken  String?
+  openAiApiKey         String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("agent") // "admin" | "agent"
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedConversations Conversation[]
+  assignedTasks         Task[]           @relation("AssignedTo")
+  createdTasks          Task[]           @relation("CreatedBy")
+
+  activityLogs ActivityLog[]
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  waId      String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
+}
+
+model AiRole {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  systemPrompt String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  conversations Conversation[]
+  examples      AiRoleExample[]
+  knowledgeFiles AiRoleKnowledgeFile[]
+}
+
+model AiRoleExample {
+  id        String   @id @default(cuid())
+  aiRoleId  String
+  aiRole    AiRole   @relation(fields: [aiRoleId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiRoleKnowledgeFile {
+  id           String   @id @default(cuid())
+  aiRoleId     String
+  aiRole       AiRole   @relation(fields: [aiRoleId], references: [id], onDelete: Cascade)
+  originalName String
+  storedName   String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+}
+
+model Conversation {
+  id            String   @id @default(cuid())
+  contactId     String
+  contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status        String   @default("ai") // "ai" | "human"
+  unreadCount   Int      @default(0)
+  aiRoleId      String?
+  aiRole        AiRole?  @relation(fields: [aiRoleId], references: [id])
+  assignedToId  String?
+  assignedTo    TeamMember? @relation(fields: [assignedToId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages Message[]
+  tasks    Task[]
+
+  @@unique([contactId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String   // "in" | "out"
+  waMessageId    String?
+  body           String
+  fromAi         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+model Task {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  status         String   @default("pending") // "pending" | "in_progress" | "done"
+  createdById    String?
+  createdBy      TeamMember? @relation("CreatedBy", fields: [createdById], references: [id])
+  assignedToId   String?
+  assignedTo     TeamMember? @relation("AssignedTo", fields: [assignedToId], references: [id])
+  dueAt          DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([conversationId])
+  @@index([assignedToId])
+  @@index([status])
+}
+
+model ActivityLog {
+  id String @id @default(cuid())
+
+  actorId String?
+  actor   TeamMember? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  // Conversaciones/tareas/mensajes/etc.
+  entityType String
+  action     String
+
+  entityId        String?
+  conversationId  String?
+  taskId          String?
+
+  // Campos extra según la acción (ej: { fromStatus, toStatus }).
+  // SQLite no soporta Json en Prisma; guardamos un JSON serializado como texto.
+  meta String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType])
+  @@index([action])
+  @@index([conversationId])
+  @@index([taskId])
+  @@index([actorId])
+  @@index([createdAt])
+}
