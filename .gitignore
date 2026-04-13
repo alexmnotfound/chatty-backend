@@ -11,6 +11,14 @@ dist/
 *.pem
 *.key
 
+# User
+docs/
+
+# AI tools
+.claude/
+.cursor/
+CLAUDE.md
+
 # Databases
 *.db
 *.db-journal
