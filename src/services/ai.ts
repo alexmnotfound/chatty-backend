@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import { prisma } from "../lib/prisma.js";
 
-async function getOpenAiApiKey() {
-  const cfg = await prisma.appConfig.findUnique({ where: { id: 1 } });
+async function getOpenAiApiKey(companyId: string): Promise<string> {
+  const cfg = await prisma.companyConfig.findUnique({ where: { companyId } });
   return cfg?.openAiApiKey || process.env.OPENAI_API_KEY || "";
 }
 
 export async function getAiReply(
   systemPrompt: string,
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  companyId: string
 ): Promise<string> {
-  const apiKey = await getOpenAiApiKey();
+  const apiKey = await getOpenAiApiKey(companyId);
   if (!apiKey) {
     return "Lo siento, el asistente no está configurado (falta OPENAI_API_KEY). Un humano te atenderá pronto.";
   }
@@ -19,12 +20,7 @@ export async function getAiReply(
     { role: "system", content: systemPrompt + "\n\nResponde siempre en español y de forma breve." },
     ...messages,
   ];
-
-  console.log("[OpenAI] Request", {
-    model: "gpt-4o-mini",
-    messagesCount: openAiMessages.length,
-  });
-
+  console.log("[OpenAI] Request", { model: "gpt-4o-mini", messagesCount: openAiMessages.length });
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -32,11 +28,7 @@ export async function getAiReply(
       max_tokens: 500,
     });
     const content = response.choices[0]?.message?.content?.trim();
-    console.log("[OpenAI] Response", {
-      id: response.id,
-      usage: response.usage ?? null,
-      hasContent: Boolean(content),
-    });
+    console.log("[OpenAI] Response", { id: response.id, usage: response.usage ?? null, hasContent: Boolean(content) });
     return content ?? "No pude generar una respuesta. ¿Podés repetir?";
   } catch (error) {
     console.error("[OpenAI] Error", error);
@@ -48,7 +40,7 @@ export function buildHistoryFromMessages(
   messages: { direction: string; body: string; fromAi: boolean }[]
 ): { role: "user" | "assistant"; content: string }[] {
   return messages.map((m) => ({
-    role: (m.direction === "in" || m.fromAi === false ? "user" : "assistant") as "user" | "assistant",
+    role: (m.direction === "in" ? "user" : "assistant") as "user" | "assistant",
     content: m.body,
   }));
 }

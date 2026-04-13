@@ -1,22 +1,17 @@
 import { Router, type Request } from "express";
 import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
-import { sendWhatsAppText } from "../services/whatsapp.js";
+import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
 import { getAiReply, buildHistoryFromMessages } from "../services/ai.js";
 import { logActivity } from "../lib/activityLogger.js";
 
 export const whatsappWebhookRouter = Router();
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
-const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 
-function verifyMetaSignature(req: Request): boolean {
-  if (!APP_SECRET) return false;
-  const sigHeader = req.headers["x-hub-signature-256"];
-  if (typeof sigHeader !== "string" || !sigHeader.startsWith("sha256=")) return false;
-  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-  if (!rawBody) return false;
-  const expected = crypto.createHmac("sha256", APP_SECRET).update(rawBody).digest("hex");
+function verifySignature(rawBody: Buffer, sigHeader: string, appSecret: string): boolean {
+  if (!sigHeader.startsWith("sha256=")) return false;
+  const expected = crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
   const received = sigHeader.slice(7);
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(received, "hex");
@@ -45,11 +40,8 @@ whatsappWebhookRouter.get("/", (req, res) => {
 });
 
 whatsappWebhookRouter.post("/", async (req, res) => {
-  if (!verifyMetaSignature(req)) {
-    res.sendStatus(403);
-    return;
-  }
-  res.sendStatus(200);
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  const sigHeader = req.headers["x-hub-signature-256"];
 
   const body = req.body as {
     object?: string;
@@ -73,7 +65,46 @@ whatsappWebhookRouter.post("/", async (req, res) => {
     }>;
   };
 
-  if (body.object !== "whatsapp_business_account") return;
+  if (body.object !== "whatsapp_business_account") {
+    res.sendStatus(200);
+    return;
+  }
+
+  // Extract phone_number_id from the first entry
+  const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+  if (!phoneNumberId) {
+    res.sendStatus(200);
+    return;
+  }
+
+  // Look up company by phone_number_id
+  const config = await prisma.companyConfig.findFirst({
+    where: { whatsappPhoneNumberId: phoneNumberId },
+    include: { company: true },
+  });
+  if (!config || !config.company.enabled) {
+    console.warn("[webhook] No company found for phone_number_id:", phoneNumberId);
+    res.sendStatus(200);
+    return;
+  }
+
+  // Verify HMAC with company's app secret (fall back to global env var)
+  const appSecret = config.whatsappAppSecret || process.env.WHATSAPP_APP_SECRET;
+  if (!appSecret || !rawBody || typeof sigHeader !== "string") {
+    res.sendStatus(403);
+    return;
+  }
+  if (!verifySignature(rawBody, sigHeader, appSecret)) {
+    res.sendStatus(403);
+    return;
+  }
+
+  const companyId = config.companyId;
+
+  // Respond 200 immediately
+  res.sendStatus(200);
+
+  const credentials = await getWhatsAppCredentials(companyId);
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -89,20 +120,24 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const name = contactInfo?.profile?.name ?? null;
 
         const contact = await prisma.contact.upsert({
-          where: { waId: from },
-          create: { waId: from, name },
+          where: { companyId_waId: { companyId, waId: from } },
+          create: { companyId, waId: from, name },
           update: name ? { name } : {},
         });
 
         let conversation = await prisma.conversation.findUnique({
-          where: { contactId: contact.id },
+          where: { companyId_contactId: { companyId, contactId: contact.id } },
           include: { aiRole: true, messages: { orderBy: { createdAt: "asc" } } },
         });
 
         if (!conversation) {
-          const defaultRole = await prisma.aiRole.findFirst({ orderBy: { name: "asc" } });
+          const defaultRole = await prisma.aiRole.findFirst({
+            where: { companyId },
+            orderBy: { name: "asc" },
+          });
           conversation = await prisma.conversation.create({
             data: {
+              companyId,
               contactId: contact.id,
               status: "ai",
               aiRoleId: defaultRole?.id ?? null,
@@ -110,6 +145,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             include: { aiRole: true, messages: true },
           });
           void logActivity({
+            companyId,
             action: "conversation.created",
             entityType: "conversation",
             entityId: conversation.id,
@@ -129,6 +165,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           },
         });
         void logActivity({
+          companyId,
           action: "message.incoming",
           entityType: "message",
           entityId: incomingMessage.id,
@@ -141,13 +178,13 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           data: { updatedAt: new Date(), unreadCount: { increment: 1 } },
         });
 
-        if (conversation.status === "human") {
-          continue;
-        }
+        if (conversation.status === "human") continue;
 
         const role = conversation.aiRole;
         if (!role) {
-          await sendWhatsAppText(from, "Gracias por escribir. Un momento por favor, te atiende un humano.");
+          if (credentials) {
+            await sendWhatsAppText(from, "Gracias por escribir. Un momento por favor, te atiende un humano.", credentials);
+          }
           continue;
         }
 
@@ -158,25 +195,28 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         if (!updatedConv) continue;
 
         const history = buildHistoryFromMessages(updatedConv.messages);
-        const reply = await getAiReply(role.systemPrompt, history);
+        const reply = await getAiReply(role.systemPrompt, history, companyId);
 
-        const sent = await sendWhatsAppText(from, reply);
-        if (sent) {
-          const outMessage = await prisma.message.create({
-            data: {
+        if (credentials) {
+          const sent = await sendWhatsAppText(from, reply, credentials);
+          if (sent) {
+            const outMessage = await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                direction: "out",
+                body: reply,
+                fromAi: true,
+              },
+            });
+            void logActivity({
+              companyId,
+              action: "message.ai_reply",
+              entityType: "message",
+              entityId: outMessage.id,
               conversationId: conversation.id,
-              direction: "out",
-              body: reply,
-              fromAi: true,
-            },
-          });
-          void logActivity({
-            action: "message.ai_reply",
-            entityType: "message",
-            entityId: outMessage.id,
-            conversationId: conversation.id,
-            meta: { textLength: outMessage.body.length, ai: true },
-          });
+              meta: { textLength: outMessage.body.length, ai: true },
+            });
+          }
         }
       }
     }

@@ -2,11 +2,15 @@ import { prisma } from "../lib/prisma.js";
 
 const BASE = "https://graph.facebook.com/v21.0";
 
+export type WhatsAppCredentials = {
+  token: string;
+  phoneNumberId: string;
+};
+
 function buildArgentinaFallbackCandidates(normalized: string): string[] {
   const candidates = new Set<string>();
   if (!(normalized.startsWith("549") && normalized.length === 13)) return [];
-
-  const national = normalized.slice(3); // area + subscriber (10 digits)
+  const national = normalized.slice(3);
   for (const areaLen of [2, 3, 4]) {
     const area = national.slice(0, areaLen);
     const subscriber = national.slice(areaLen);
@@ -19,7 +23,7 @@ function buildArgentinaFallbackCandidates(normalized: string): string[] {
 async function sendToNumber(
   to: string,
   text: string,
-  auth: { token: string; phoneNumberId: string }
+  auth: WhatsAppCredentials
 ): Promise<{ ok: boolean; status: number; err: string }> {
   const res = await fetch(`${BASE}/${auth.phoneNumberId}/messages`, {
     method: "POST",
@@ -45,19 +49,13 @@ function getMetaErrorCode(err: string): number | null {
   }
 }
 
-export async function sendWhatsAppText(to: string, text: string): Promise<boolean> {
-  const config = await prisma.appConfig.findUnique({ where: { id: 1 } });
-  const token = config?.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = config?.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const auth = token && phoneNumberId ? { token, phoneNumberId } : null;
-
-  if (!auth) {
-    console.error("WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set");
-    return false;
-  }
-
+export async function sendWhatsAppText(
+  to: string,
+  text: string,
+  credentials: WhatsAppCredentials
+): Promise<boolean> {
   const normalized = to.replace(/\D/g, "");
-  const firstTry = await sendToNumber(normalized, text, auth);
+  const firstTry = await sendToNumber(normalized, text, credentials);
   if (firstTry.ok) return true;
 
   let attemptedRecipients = [normalized];
@@ -65,13 +63,11 @@ export async function sendWhatsAppText(to: string, text: string): Promise<boolea
   let lastStatus = firstTry.status;
   const errorCode = getMetaErrorCode(firstTry.err);
 
-  // Apply heuristic fallbacks only for Meta "recipient not allowed/not matched" error.
   if (errorCode === 131030) {
     const fallbackCandidates = buildArgentinaFallbackCandidates(normalized).filter((n) => n !== normalized);
     attemptedRecipients = attemptedRecipients.concat(fallbackCandidates);
-
     for (const candidate of fallbackCandidates) {
-      const result = await sendToNumber(candidate, text, auth);
+      const result = await sendToNumber(candidate, text, credentials);
       if (result.ok) return true;
       lastError = result.err;
       lastStatus = result.status;
@@ -83,4 +79,12 @@ export async function sendWhatsAppText(to: string, text: string): Promise<boolea
     err: lastError,
   });
   return false;
+}
+
+export async function getWhatsAppCredentials(companyId: string): Promise<WhatsAppCredentials | null> {
+  const config = await prisma.companyConfig.findUnique({ where: { companyId } });
+  const token = config?.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = config?.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneNumberId) return null;
+  return { token, phoneNumberId };
 }

@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { z } from "zod";
 import { logActivity } from "../lib/activityLogger.js";
 import { getCompanyId } from "../middleware/tenant.js";
+import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
 
 export const conversationsRouter = Router();
 conversationsRouter.use(requireAuth);
@@ -229,8 +230,12 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
-  const { sendWhatsAppText } = await import("../services/whatsapp.js");
-  const sent = await sendWhatsAppText(conv.contact.waId, parsed.data.text);
+  const credentials = await getWhatsAppCredentials(companyId);
+  if (!credentials) {
+    res.status(502).json({ error: "WhatsApp no está configurado para esta empresa" });
+    return;
+  }
+  const sent = await sendWhatsAppText(conv.contact.waId, parsed.data.text, credentials);
   if (!sent) {
     res.status(502).json({ error: "No se pudo enviar por WhatsApp" });
     return;
