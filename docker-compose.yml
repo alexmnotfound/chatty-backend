@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: chatty
+      POSTGRES_PASSWORD: chatty_dev
+      POSTGRES_DB: chatty
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
