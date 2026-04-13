@@ -12,6 +12,8 @@ import { whatsappWebhookRouter } from "./routes/whatsappWebhook.js";
 import { settingsRouter } from "./routes/settings.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { auditRouter } from "./routes/audit.js";
+import { superAdminRouter } from "./routes/superAdmin.js";
+import { superCompaniesRouter } from "./routes/superCompanies.js";
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error("JWT_SECRET must be set to a strong random value (>=32 chars). Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
@@ -64,6 +66,9 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/metrics", metricsRouter);
 app.use("/api/audit", auditRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
+
+app.use("/api/super/auth", authLimiter, superAdminRouter);
+app.use("/api/super/companies", superCompaniesRouter);
 
 // Global error handler — never leak stack traces
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
