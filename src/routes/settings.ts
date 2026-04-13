@@ -3,27 +3,26 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
 import { prisma } from "../lib/prisma.js";
+import { getCompanyId } from "../middleware/tenant.js";
 
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
 
-async function ensureConfig() {
-  return prisma.appConfig.upsert({
-    where: { id: 1 },
-    create: { id: 1 },
+async function ensureConfig(companyId: string) {
+  return prisma.companyConfig.upsert({
+    where: { companyId },
+    create: { companyId },
     update: {},
   });
 }
 
 settingsRouter.get("/", async (req, res) => {
-  const member = (req as Request & { member: { role: string } }).member;
-  const config = await ensureConfig();
-
-  // Never return plaintext secrets — only presence flags, regardless of role.
-  void member;
+  const companyId = getCompanyId(req);
+  const config = await ensureConfig(companyId);
   res.json({
     whatsappPhoneNumberId: config.whatsappPhoneNumberId ?? "",
     hasWhatsAppAccessToken: Boolean(config.whatsappAccessToken),
+    hasWhatsAppAppSecret: Boolean(config.whatsappAppSecret),
     hasOpenAiApiKey: Boolean(config.openAiApiKey),
   });
 });
@@ -31,35 +30,35 @@ settingsRouter.get("/", async (req, res) => {
 const patchSchema = z.object({
   whatsappPhoneNumberId: z.string().min(1).optional(),
   whatsappAccessToken: z.string().min(1).optional(),
+  whatsappAppSecret: z.string().min(1).optional(),
   openAiApiKey: z.string().min(1).optional(),
 });
 
 settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Datos de configuración inválidos" });
     return;
   }
-
   const data: Record<string, string> = {};
   if (parsed.data.whatsappPhoneNumberId !== undefined) data.whatsappPhoneNumberId = parsed.data.whatsappPhoneNumberId.trim();
   if (parsed.data.whatsappAccessToken !== undefined) data.whatsappAccessToken = parsed.data.whatsappAccessToken.trim();
+  if (parsed.data.whatsappAppSecret !== undefined) data.whatsappAppSecret = parsed.data.whatsappAppSecret.trim();
   if (parsed.data.openAiApiKey !== undefined) data.openAiApiKey = parsed.data.openAiApiKey.trim();
   if (Object.keys(data).length === 0) {
     res.status(400).json({ error: "Nada para actualizar" });
     return;
   }
-
-  const updated = await prisma.appConfig.upsert({
-    where: { id: 1 },
-    create: { id: 1, ...data },
+  const updated = await prisma.companyConfig.upsert({
+    where: { companyId },
+    create: { companyId, ...data },
     update: data,
   });
-
-  // Do not echo plaintext secrets back after update.
   res.json({
     whatsappPhoneNumberId: updated.whatsappPhoneNumberId ?? "",
     hasWhatsAppAccessToken: Boolean(updated.whatsappAccessToken),
+    hasWhatsAppAppSecret: Boolean(updated.whatsappAppSecret),
     hasOpenAiApiKey: Boolean(updated.openAiApiKey),
   });
 });

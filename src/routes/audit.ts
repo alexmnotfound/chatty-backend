@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
 import { prisma } from "../lib/prisma.js";
+import { getCompanyId } from "../middleware/tenant.js";
 
 export const auditRouter = Router();
 auditRouter.use(requireAuth, requireRole("admin"));
@@ -11,16 +12,8 @@ function asInt(value: unknown, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function safeParseJson(input: string | null) {
-  if (!input) return null;
-  try {
-    return JSON.parse(input) as unknown;
-  } catch {
-    return null;
-  }
-}
-
 auditRouter.get("/", async (req, res) => {
+  const companyId = getCompanyId(req);
   const limit = Math.max(1, Math.min(200, asInt(req.query.limit, 50)));
   const offset = Math.max(0, asInt(req.query.offset, 0));
 
@@ -33,7 +26,7 @@ auditRouter.get("/", async (req, res) => {
   const taskId = typeof req.query.taskId === "string" ? req.query.taskId : null;
   const action = typeof req.query.action === "string" ? req.query.action : null;
 
-  const where: any = {};
+  const where: any = { companyId };
   if (from && !Number.isNaN(from.valueOf())) where.createdAt = { ...(where.createdAt ?? {}), gte: from };
   if (to && !Number.isNaN(to.valueOf())) where.createdAt = { ...(where.createdAt ?? {}), lte: to };
   if (actorId) where.actorId = actorId;
@@ -64,10 +57,8 @@ auditRouter.get("/", async (req, res) => {
       entityId: l.entityId,
       conversationId: l.conversationId,
       taskId: l.taskId,
-      meta: safeParseJson(l.meta),
-      metaRaw: l.meta,
+      meta: l.meta,
       createdAt: l.createdAt.toISOString(),
     })),
   });
 });
-

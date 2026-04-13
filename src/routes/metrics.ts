@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { getCompanyId } from "../middleware/tenant.js";
 
 export const metricsRouter = Router();
 metricsRouter.use(requireAuth);
@@ -11,10 +12,12 @@ function asInt(value: unknown, fallback: number) {
 }
 
 metricsRouter.get("/dashboard", async (req, res) => {
+  const companyId = getCompanyId(req);
   const days = Math.max(1, Math.min(90, asInt(req.query.days, 30)));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const conversations = await prisma.conversation.findMany({
+    where: { companyId },
     select: { status: true, unreadCount: true },
   });
 
@@ -24,6 +27,7 @@ metricsRouter.get("/dashboard", async (req, res) => {
   const unreadTotal = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
   const tasks = await prisma.task.findMany({
+    where: { companyId },
     select: { status: true, createdAt: true, updatedAt: true, dueAt: true },
   });
   const tasksTotal = tasks.length;
@@ -31,12 +35,12 @@ metricsRouter.get("/dashboard", async (req, res) => {
   const tasksInProgress = tasks.filter((t) => t.status === "in_progress").length;
   const tasksDone = tasks.filter((t) => t.status === "done").length;
 
-  const tasksCreatedInRange = await prisma.task.count({ where: { createdAt: { gte: since } } });
+  const tasksCreatedInRange = await prisma.task.count({ where: { companyId, createdAt: { gte: since } } });
   const tasksDoneInRange = await prisma.task.count({
-    where: { status: "done", updatedAt: { gte: since } },
+    where: { companyId, status: "done", updatedAt: { gte: since } },
   });
 
-  const sinceWhere: any = { createdAt: { gte: since } };
+  const sinceWhere: any = { companyId, createdAt: { gte: since } };
 
   const totalEventsInRange = await prisma.activityLog.count({ where: sinceWhere });
 
@@ -52,7 +56,7 @@ metricsRouter.get("/dashboard", async (req, res) => {
   const actorById = new Map(
     (
       await prisma.teamMember.findMany({
-        where: { id: { in: topActorIds.length ? topActorIds : ["__none__"] } },
+        where: { companyId, id: { in: topActorIds.length ? topActorIds : ["__none__"] } },
         select: { id: true, name: true, email: true, role: true },
       })
     ).map((a) => [a.id, a] as const),
@@ -113,4 +117,3 @@ metricsRouter.get("/dashboard", async (req, res) => {
     },
   });
 });
-

@@ -5,12 +5,15 @@ import type { MemberRole } from "../lib/roles.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
 import { prisma } from "../lib/prisma.js";
+import { getCompanyId } from "../middleware/tenant.js";
 
 export const teamRouter = Router();
 teamRouter.use(requireAuth);
 
-teamRouter.get("/", async (_req, res) => {
+teamRouter.get("/", async (req, res) => {
+  const companyId = getCompanyId(req);
   const members = await prisma.teamMember.findMany({
+    where: { companyId },
     select: { id: true, name: true, email: true, role: true, enabled: true },
     orderBy: { name: "asc" },
   });
@@ -25,6 +28,7 @@ const createSchema = z.object({
 });
 
 teamRouter.post("/", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Email, nombre y contraseña (mín. 6) requeridos" });
@@ -39,6 +43,7 @@ teamRouter.post("/", requireRole("admin"), async (req, res) => {
   const role: MemberRole = parsed.data.role === "admin" ? "admin" : "agent";
   const member = await prisma.teamMember.create({
     data: {
+      companyId,
       email: parsed.data.email,
       password: hash,
       name: parsed.data.name,
@@ -56,6 +61,7 @@ const patchSchema = z.object({
 });
 
 teamRouter.patch("/:id", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Datos inválidos" });
@@ -63,7 +69,7 @@ teamRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   }
   const { id } = req.params;
   const self = (req as Request & { member: { id: string } }).member;
-  const target = await prisma.teamMember.findUnique({ where: { id } });
+  const target = await prisma.teamMember.findFirst({ where: { id, companyId } });
   if (!target) {
     res.status(404).json({ error: "Usuario no encontrado" });
     return;
@@ -74,7 +80,7 @@ teamRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   }
   if (parsed.data.enabled === false && target.role === "admin") {
     const otherEnabledAdmins = await prisma.teamMember.count({
-      where: { role: "admin", enabled: true, id: { not: id } },
+      where: { companyId, role: "admin", enabled: true, id: { not: id } },
     });
     if (otherEnabledAdmins < 1) {
       res.status(400).json({ error: "Tiene que haber al menos un administrador habilitado" });
@@ -82,7 +88,7 @@ teamRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     }
   }
   if (parsed.data.role === "agent" && target.role === "admin") {
-    const admins = await prisma.teamMember.count({ where: { role: "admin" } });
+    const admins = await prisma.teamMember.count({ where: { companyId, role: "admin" } });
     if (admins <= 1) {
       res.status(400).json({ error: "Tiene que haber al menos un administrador" });
       return;
@@ -107,19 +113,20 @@ teamRouter.patch("/:id", requireRole("admin"), async (req, res) => {
 });
 
 teamRouter.delete("/:id", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const { id } = req.params;
   const self = (req as Request & { member: { id: string } }).member;
   if (id === self.id) {
     res.status(400).json({ error: "No podés eliminarte a vos mismo" });
     return;
   }
-  const target = await prisma.teamMember.findUnique({ where: { id } });
+  const target = await prisma.teamMember.findFirst({ where: { id, companyId } });
   if (!target) {
     res.status(404).json({ error: "Usuario no encontrado" });
     return;
   }
   if (target.role === "admin") {
-    const admins = await prisma.teamMember.count({ where: { role: "admin" } });
+    const admins = await prisma.teamMember.count({ where: { companyId, role: "admin" } });
     if (admins <= 1) {
       res.status(400).json({ error: "Tiene que haber al menos un administrador" });
       return;

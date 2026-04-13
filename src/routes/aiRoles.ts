@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
 import { prisma } from "../lib/prisma.js";
+import { getCompanyId } from "../middleware/tenant.js";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,10 +50,12 @@ function verifyPdfMagicBytes(filePath: string): boolean {
 }
 
 aiRolesRouter.get("/", async (req, res) => {
+  const companyId = getCompanyId(req);
   const member = (req as Request & { member: { role: string } }).member;
   const isAdmin = member.role === "admin";
   if (isAdmin) {
     const roles = await prisma.aiRole.findMany({
+      where: { companyId },
       orderBy: { name: "asc" },
       include: {
         examples: { orderBy: { createdAt: "asc" } },
@@ -64,6 +67,7 @@ aiRolesRouter.get("/", async (req, res) => {
   }
 
   const roles = await prisma.aiRole.findMany({
+    where: { companyId },
     orderBy: { name: "asc" },
     select: { id: true, key: true, name: true },
   });
@@ -76,6 +80,7 @@ const patchSchema = z.object({
 });
 
 aiRolesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Nombre o reglas (instrucciones) inválidos" });
@@ -86,13 +91,13 @@ aiRolesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     return;
   }
   const { id } = req.params;
-  const existing = await prisma.aiRole.findUnique({ where: { id } });
+  const existing = await prisma.aiRole.findFirst({ where: { id, companyId } });
   if (!existing) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
   const updated = await prisma.aiRole.update({
-    where: { id },
+    where: { id: existing.id },
     data: {
       ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
       ...(parsed.data.systemPrompt !== undefined ? { systemPrompt: parsed.data.systemPrompt } : {}),
@@ -111,13 +116,14 @@ const exampleSchema = z.object({
 });
 
 aiRolesRouter.post("/:id/examples", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = exampleSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Ejemplo inválido" });
     return;
   }
-  const role = await prisma.aiRole.findUnique({
-    where: { id: req.params.id },
+  const role = await prisma.aiRole.findFirst({
+    where: { id: req.params.id, companyId },
     include: { examples: true },
   });
   if (!role) {
@@ -144,13 +150,20 @@ const updateExampleSchema = z.object({
 });
 
 aiRolesRouter.patch("/:id/examples/:exampleId", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
   const parsed = updateExampleSchema.safeParse(req.body);
   if (!parsed.success || (parsed.data.title === undefined && parsed.data.content === undefined)) {
     res.status(400).json({ error: "Actualización de ejemplo inválida" });
     return;
   }
+  // Verify the role belongs to this company
+  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  if (!role) {
+    res.status(404).json({ error: "Rol de IA no encontrado" });
+    return;
+  }
   const existing = await prisma.aiRoleExample.findFirst({
-    where: { id: req.params.exampleId, aiRoleId: req.params.id },
+    where: { id: req.params.exampleId, aiRoleId: role.id },
   });
   if (!existing) {
     res.status(404).json({ error: "Ejemplo no encontrado" });
@@ -167,8 +180,15 @@ aiRolesRouter.patch("/:id/examples/:exampleId", requireRole("admin"), async (req
 });
 
 aiRolesRouter.delete("/:id/examples/:exampleId", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
+  // Verify the role belongs to this company
+  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  if (!role) {
+    res.status(404).json({ error: "Rol de IA no encontrado" });
+    return;
+  }
   const existing = await prisma.aiRoleExample.findFirst({
-    where: { id: req.params.exampleId, aiRoleId: req.params.id },
+    where: { id: req.params.exampleId, aiRoleId: role.id },
   });
   if (!existing) {
     res.status(404).json({ error: "Ejemplo no encontrado" });
@@ -179,7 +199,8 @@ aiRolesRouter.delete("/:id/examples/:exampleId", requireRole("admin"), async (re
 });
 
 aiRolesRouter.post("/:id/knowledge-files", requireRole("admin"), uploadPdf.single("file"), async (req, res) => {
-  const role = await prisma.aiRole.findUnique({ where: { id: req.params.id } });
+  const companyId = getCompanyId(req);
+  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
   if (!role) {
     if (req.file?.path) fs.unlink(req.file.path, () => undefined);
     res.status(404).json({ error: "Rol de IA no encontrado" });
@@ -207,8 +228,15 @@ aiRolesRouter.post("/:id/knowledge-files", requireRole("admin"), uploadPdf.singl
 });
 
 aiRolesRouter.delete("/:id/knowledge-files/:fileId", requireRole("admin"), async (req, res) => {
+  const companyId = getCompanyId(req);
+  // Verify the role belongs to this company
+  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  if (!role) {
+    res.status(404).json({ error: "Rol de IA no encontrado" });
+    return;
+  }
   const file = await prisma.aiRoleKnowledgeFile.findFirst({
-    where: { id: req.params.fileId, aiRoleId: req.params.id },
+    where: { id: req.params.fileId, aiRoleId: role.id },
   });
   if (!file) {
     res.status(404).json({ error: "Archivo no encontrado" });

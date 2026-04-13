@@ -3,12 +3,15 @@ import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { z } from "zod";
 import { logActivity } from "../lib/activityLogger.js";
+import { getCompanyId } from "../middleware/tenant.js";
 
 export const conversationsRouter = Router();
 conversationsRouter.use(requireAuth);
 
 conversationsRouter.get("/", async (req, res) => {
+  const companyId = getCompanyId(req);
   const list = await prisma.conversation.findMany({
+    where: { companyId },
     orderBy: { updatedAt: "desc" },
     include: {
       contact: true,
@@ -21,8 +24,9 @@ conversationsRouter.get("/", async (req, res) => {
 });
 
 conversationsRouter.get("/:id", async (req, res) => {
-  const conv = await prisma.conversation.findUnique({
-    where: { id: req.params.id },
+  const companyId = getCompanyId(req);
+  const conv = await prisma.conversation.findFirst({
+    where: { id: req.params.id, companyId },
     include: {
       contact: true,
       aiRole: true,
@@ -45,14 +49,20 @@ conversationsRouter.get("/:id", async (req, res) => {
 
 const readStateSchema = z.object({ unread: z.boolean() });
 conversationsRouter.patch("/:id/read-state", async (req, res) => {
+  const companyId = getCompanyId(req);
+  const member = (req as any).member as { id: string };
   const parsed = readStateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Dato inválido" });
     return;
   }
-  const member = (req as any).member as { id: string };
+  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) {
+    res.status(404).json({ error: "Conversación no encontrada" });
+    return;
+  }
   const conv = await prisma.conversation.update({
-    where: { id: req.params.id },
+    where: { id: existing.id },
     data: { unreadCount: parsed.data.unread ? 1 : 0 },
     include: {
       contact: true,
@@ -68,6 +78,7 @@ conversationsRouter.patch("/:id/read-state", async (req, res) => {
     },
   });
   void logActivity({
+    companyId,
     actorId: member?.id,
     action: "conversation.read_state",
     entityType: "conversation",
@@ -80,11 +91,17 @@ conversationsRouter.patch("/:id/read-state", async (req, res) => {
 
 const takeOverSchema = z.object({ assignToMe: z.boolean().optional() });
 conversationsRouter.post("/:id/take-over", async (req, res) => {
+  const companyId = getCompanyId(req);
   const member = (req as any).member;
   const parsed = takeOverSchema.safeParse(req.body);
   const assignToMe = parsed.success && parsed.data.assignToMe !== false;
+  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) {
+    res.status(404).json({ error: "Conversación no encontrada" });
+    return;
+  }
   const conv = await prisma.conversation.update({
-    where: { id: req.params.id },
+    where: { id: existing.id },
     data: {
       status: "human",
       assignedToId: assignToMe ? member.id : null,
@@ -103,6 +120,7 @@ conversationsRouter.post("/:id/take-over", async (req, res) => {
     },
   });
   void logActivity({
+    companyId,
     actorId: member?.id,
     action: "conversation.take_over",
     entityType: "conversation",
@@ -114,9 +132,15 @@ conversationsRouter.post("/:id/take-over", async (req, res) => {
 });
 
 conversationsRouter.post("/:id/release-to-ai", async (req, res) => {
+  const companyId = getCompanyId(req);
   const member = (req as any).member as { id: string };
+  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) {
+    res.status(404).json({ error: "Conversación no encontrada" });
+    return;
+  }
   const conv = await prisma.conversation.update({
-    where: { id: req.params.id },
+    where: { id: existing.id },
     data: {
       status: "ai",
       assignedToId: null,
@@ -135,6 +159,7 @@ conversationsRouter.post("/:id/release-to-ai", async (req, res) => {
     },
   });
   void logActivity({
+    companyId,
     actorId: member?.id,
     action: "conversation.release_to_ai",
     entityType: "conversation",
@@ -146,6 +171,7 @@ conversationsRouter.post("/:id/release-to-ai", async (req, res) => {
 
 const setRoleSchema = z.object({ aiRoleId: z.string().min(1) });
 conversationsRouter.patch("/:id/ai-role", async (req, res) => {
+  const companyId = getCompanyId(req);
   const member = (req as any).member as { id: string };
   const setRoleParsed = setRoleSchema.safeParse(req.body);
   if (!setRoleParsed.success) {
@@ -153,8 +179,13 @@ conversationsRouter.patch("/:id/ai-role", async (req, res) => {
     return;
   }
   const { aiRoleId } = setRoleParsed.data;
+  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) {
+    res.status(404).json({ error: "Conversación no encontrada" });
+    return;
+  }
   const conv = await prisma.conversation.update({
-    where: { id: req.params.id },
+    where: { id: existing.id },
     data: { aiRoleId },
     include: {
       contact: true,
@@ -170,6 +201,7 @@ conversationsRouter.patch("/:id/ai-role", async (req, res) => {
     },
   });
   void logActivity({
+    companyId,
     actorId: member?.id,
     action: "conversation.set_ai_role",
     entityType: "conversation",
@@ -182,14 +214,15 @@ conversationsRouter.patch("/:id/ai-role", async (req, res) => {
 
 const sendSchema = z.object({ text: z.string().min(1).max(4096) });
 conversationsRouter.post("/:id/send", async (req, res) => {
+  const companyId = getCompanyId(req);
   const member = (req as any).member;
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Texto requerido" });
     return;
   }
-  const conv = await prisma.conversation.findUnique({
-    where: { id: req.params.id },
+  const conv = await prisma.conversation.findFirst({
+    where: { id: req.params.id, companyId },
     include: { contact: true },
   });
   if (!conv) {
@@ -215,6 +248,7 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     data: { updatedAt: new Date() },
   });
   void logActivity({
+    companyId,
     actorId: member?.id,
     action: "message.human_send",
     entityType: "message",
