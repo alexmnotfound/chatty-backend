@@ -7,21 +7,53 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model AppConfig {
-  id                   Int      @id
-  whatsappPhoneNumberId String?
-  whatsappAccessToken  String?
-  openAiApiKey         String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  config        CompanyConfig?
+  teamMembers   TeamMember[]
+  contacts      Contact[]
+  conversations Conversation[]
+  aiRoles       AiRole[]
+  tasks         Task[]
+  activityLogs  ActivityLog[]
 }
 
-model TeamMember {
+model CompanyConfig {
+  id                    String   @id @default(cuid())
+  companyId             String   @unique
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  whatsappPhoneNumberId String?
+  whatsappAccessToken   String?
+  whatsappAppSecret     String?
+  openAiApiKey          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model SuperAdmin {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   name      String
-  role      String   @default("agent") // "admin" | "agent"
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("agent")
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -29,31 +61,42 @@ model TeamMember {
   assignedConversations Conversation[]
   assignedTasks         Task[]           @relation("AssignedTo")
   createdTasks          Task[]           @relation("CreatedBy")
+  activityLogs          ActivityLog[]
 
-  activityLogs ActivityLog[]
+  @@index([companyId])
 }
 
 model Contact {
   id        String   @id @default(cuid())
-  waId      String   @unique
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  waId      String
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   conversations Conversation[]
+
+  @@unique([companyId, waId])
+  @@index([companyId])
 }
 
 model AiRole {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  name        String
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  key          String
+  name         String
   systemPrompt String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  conversations Conversation[]
-  examples      AiRoleExample[]
+  conversations  Conversation[]
+  examples       AiRoleExample[]
   knowledgeFiles AiRoleKnowledgeFile[]
+
+  @@unique([companyId, key])
+  @@index([companyId])
 }
 
 model AiRoleExample {
@@ -79,9 +122,11 @@ model AiRoleKnowledgeFile {
 
 model Conversation {
   id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contactId     String
   contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  status        String   @default("ai") // "ai" | "human"
+  status        String   @default("ai")
   unreadCount   Int      @default(0)
   aiRoleId      String?
   aiRole        AiRole?  @relation(fields: [aiRoleId], references: [id])
@@ -93,14 +138,15 @@ model Conversation {
   messages Message[]
   tasks    Task[]
 
-  @@unique([contactId])
+  @@unique([companyId, contactId])
+  @@index([companyId])
 }
 
 model Message {
   id             String   @id @default(cuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  direction      String   // "in" | "out"
+  direction      String
   waMessageId    String?
   body           String
   fromAi         Boolean  @default(false)
@@ -111,11 +157,13 @@ model Message {
 
 model Task {
   id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   title          String
   description    String?
-  status         String   @default("pending") // "pending" | "in_progress" | "done"
+  status         String   @default("pending")
   createdById    String?
   createdBy      TeamMember? @relation("CreatedBy", fields: [createdById], references: [id])
   assignedToId   String?
@@ -124,31 +172,27 @@ model Task {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@index([companyId])
   @@index([conversationId])
   @@index([assignedToId])
   @@index([status])
 }
 
 model ActivityLog {
-  id String @id @default(cuid())
+  id             String   @id @default(cuid())
+  companyId      String?
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorId        String?
+  actor          TeamMember? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  entityType     String
+  action         String
+  entityId       String?
+  conversationId String?
+  taskId         String?
+  meta           Json?
+  createdAt      DateTime @default(now())
 
-  actorId String?
-  actor   TeamMember? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-
-  // Conversaciones/tareas/mensajes/etc.
-  entityType String
-  action     String
-
-  entityId        String?
-  conversationId  String?
-  taskId          String?
-
-  // Campos extra según la acción (ej: { fromStatus, toStatus }).
-  // SQLite no soporta Json en Prisma; guardamos un JSON serializado como texto.
-  meta String?
-
-  createdAt DateTime @default(now())
-
+  @@index([companyId])
   @@index([entityType])
   @@index([action])
   @@index([conversationId])
