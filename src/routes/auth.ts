@@ -12,9 +12,9 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 export const authRouter = Router();
 
 authRouter.get("/me", requireAuth, async (req, res) => {
-  const m = (req as Request & { member: { id: string; email: string; name: string; role: string; enabled: boolean } }).member;
+  const m = (req as Request & { member: { id: string; email: string; name: string; role: string; enabled: boolean; companyId: string } }).member;
   res.json({
-    member: { id: m.id, email: m.email, name: m.name, role: m.role, enabled: m.enabled },
+    member: { id: m.id, email: m.email, name: m.name, role: m.role, enabled: m.enabled, companyId: m.companyId },
   });
 });
 
@@ -36,10 +36,11 @@ authRouter.post("/login", async (req, res) => {
     res.status(403).json({ error: "Tu cuenta está deshabilitada. Consultá a un administrador." });
     return;
   }
-  const token = jwt.sign({ memberId: member.id }, JWT_SECRET, {
-    expiresIn: "7d",
-    algorithm: "HS256",
-  });
+  const token = jwt.sign(
+    { memberId: member.id, companyId: member.companyId, scope: "member" },
+    JWT_SECRET,
+    { expiresIn: "7d", algorithm: "HS256" }
+  );
   res.json({
     token,
     member: {
@@ -48,6 +49,7 @@ authRouter.post("/login", async (req, res) => {
       name: member.name,
       role: member.role,
       enabled: member.enabled,
+      companyId: member.companyId,
     },
   });
 });
