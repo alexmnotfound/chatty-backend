@@ -44,11 +44,34 @@ superCompaniesRouter.get("/:id", async (req, res) => {
   }
   const cfg = await prisma.companyConfig.findUnique({ where: { companyId: company.id } });
   res.json({
-    ...company,
+    id: company.id,
+    name: company.name,
+    slug: company.slug,
+    enabled: company.enabled,
+    createdAt: company.createdAt,
+    whatsappPhoneNumberId: company.config?.whatsappPhoneNumberId ?? null,
+    teamMemberCount: company._count.teamMembers,
+    conversationCount: company._count.conversations,
+    aiRoleCount: company._count.aiRoles,
+    taskCount: company._count.tasks,
     hasWhatsAppAccessToken: Boolean(cfg?.whatsappAccessToken),
     hasWhatsAppAppSecret: Boolean(cfg?.whatsappAppSecret),
     hasOpenAiApiKey: Boolean(cfg?.openAiApiKey),
   });
+});
+
+superCompaniesRouter.get("/:id/team", async (req, res) => {
+  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  if (!company) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+  const members = await prisma.teamMember.findMany({
+    where: { companyId: company.id },
+    select: { id: true, name: true, email: true, role: true, enabled: true },
+    orderBy: { name: "asc" },
+  });
+  res.json(members);
 });
 
 const createSchema = z.object({
@@ -100,19 +123,128 @@ superCompaniesRouter.post("/", async (req, res) => {
   });
 
   // Seed default AI roles for the new company
-  await prisma.aiRole.createMany({
-    data: [
-      {
+  const [receptionistRole, sellerRole] = await Promise.all([
+    prisma.aiRole.create({
+      data: {
         companyId: company.id,
         key: "receptionist",
         name: "Recepcionista",
         systemPrompt: "Eres una recepcionista amable y profesional. Saludá, respondé consultas básicas y derivá a un humano cuando sea necesario. Responde siempre en español, breve y claro.",
       },
-      {
+    }),
+    prisma.aiRole.create({
+      data: {
         companyId: company.id,
         key: "seller",
         name: "Vendedor",
         systemPrompt: "Eres un vendedor profesional y cercano. Preguntá qué necesita el cliente, recomendá productos o servicios y cerrá citas o pedidos cuando sea posible. Responde en español, breve y orientado a la venta.",
+      },
+    }),
+  ]);
+
+  // Seed example conversations for each bot
+  const demoContacts = await Promise.all([
+    prisma.contact.create({
+      data: { companyId: company.id, waId: "5491100000001", name: "María (ejemplo)" },
+    }),
+    prisma.contact.create({
+      data: { companyId: company.id, waId: "5491100000002", name: "Carlos (ejemplo)" },
+    }),
+  ]);
+
+  const demoConversations = await Promise.all([
+    prisma.conversation.create({
+      data: {
+        companyId: company.id,
+        contactId: demoContacts[0].id,
+        status: "ai",
+        aiRoleId: receptionistRole.id,
+      },
+    }),
+    prisma.conversation.create({
+      data: {
+        companyId: company.id,
+        contactId: demoContacts[1].id,
+        status: "ai",
+        aiRoleId: sellerRole.id,
+      },
+    }),
+  ]);
+
+  // Example messages for Recepcionista conversation
+  const now = new Date();
+  await prisma.message.createMany({
+    data: [
+      {
+        conversationId: demoConversations[0].id,
+        direction: "in",
+        body: "Hola, buenas tardes! Quería saber el horario de atención.",
+        createdAt: new Date(now.getTime() - 4 * 60000),
+      },
+      {
+        conversationId: demoConversations[0].id,
+        direction: "out",
+        body: "¡Hola María! Bienvenida 😊 Nuestro horario de atención es de lunes a viernes de 9 a 18 hs. ¿Hay algo más en lo que pueda ayudarte?",
+        fromAi: true,
+        createdAt: new Date(now.getTime() - 3 * 60000),
+      },
+      {
+        conversationId: demoConversations[0].id,
+        direction: "in",
+        body: "Sí, necesito hablar con alguien de ventas por un presupuesto.",
+        createdAt: new Date(now.getTime() - 2 * 60000),
+      },
+      {
+        conversationId: demoConversations[0].id,
+        direction: "out",
+        body: "¡Por supuesto! Te paso con nuestro equipo de ventas para que te ayuden con el presupuesto. Un momento, por favor.",
+        fromAi: true,
+        createdAt: new Date(now.getTime() - 1 * 60000),
+      },
+    ],
+  });
+
+  // Example messages for Vendedor conversation
+  await prisma.message.createMany({
+    data: [
+      {
+        conversationId: demoConversations[1].id,
+        direction: "in",
+        body: "Hola! Estoy buscando información sobre sus servicios.",
+        createdAt: new Date(now.getTime() - 5 * 60000),
+      },
+      {
+        conversationId: demoConversations[1].id,
+        direction: "out",
+        body: "¡Hola Carlos! Qué gusto saludarte. Contame, ¿qué tipo de servicio estás necesitando? Así te puedo orientar mejor.",
+        fromAi: true,
+        createdAt: new Date(now.getTime() - 4 * 60000),
+      },
+      {
+        conversationId: demoConversations[1].id,
+        direction: "in",
+        body: "Necesito el plan premium para mi empresa, somos 15 personas.",
+        createdAt: new Date(now.getTime() - 3 * 60000),
+      },
+      {
+        conversationId: demoConversations[1].id,
+        direction: "out",
+        body: "¡Excelente! El plan premium es ideal para equipos de ese tamaño. Incluye soporte prioritario y funcionalidades avanzadas. ¿Te gustaría que agendemos una llamada para revisar los detalles y un precio especial para tu empresa?",
+        fromAi: true,
+        createdAt: new Date(now.getTime() - 2 * 60000),
+      },
+      {
+        conversationId: demoConversations[1].id,
+        direction: "in",
+        body: "Dale, sí, el jueves a la mañana me viene bien.",
+        createdAt: new Date(now.getTime() - 1 * 60000),
+      },
+      {
+        conversationId: demoConversations[1].id,
+        direction: "out",
+        body: "¡Perfecto! Te agendo para el jueves a las 10 hs. Te voy a enviar un recordatorio el día anterior. ¡Gracias por tu interés, Carlos!",
+        fromAi: true,
+        createdAt: new Date(now.getTime()),
       },
     ],
   });

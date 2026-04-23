@@ -35,6 +35,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       res.status(401).json({ error: "Token inválido — empresa no coincide" });
       return;
     }
+    const company = await prisma.company.findUnique({ where: { id: member.companyId } });
+    if (!company?.enabled) {
+      res.status(403).json({ error: "La empresa está deshabilitada." });
+      return;
+    }
     (req as Request & { member: typeof member }).member = member;
     next();
   } catch {

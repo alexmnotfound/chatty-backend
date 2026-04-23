@@ -36,6 +36,11 @@ authRouter.post("/login", async (req, res) => {
     res.status(403).json({ error: "Tu cuenta está deshabilitada. Consultá a un administrador." });
     return;
   }
+  const company = await prisma.company.findUnique({ where: { id: member.companyId } });
+  if (!company?.enabled) {
+    res.status(403).json({ error: "La empresa está deshabilitada. Consultá al administrador." });
+    return;
+  }
   const token = jwt.sign(
     { memberId: member.id, companyId: member.companyId, scope: "member" },
     JWT_SECRET,
