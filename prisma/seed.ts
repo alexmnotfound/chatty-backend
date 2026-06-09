@@ -92,6 +92,23 @@ Responde siempre en español, de forma breve y orientada a la venta. Si hace fal
     update: {},
   });
 
+  await prisma.aiRole.upsert({
+    where: { companyId_key: { companyId: company.id, key: "extractor" } },
+    create: {
+      companyId: company.id,
+      key: "extractor",
+      name: "Extractor de Pagos",
+      systemPrompt: `Sos un asistente especializado en extraer datos de comprobantes de pago enviados por WhatsApp.
+Cuando el cliente envía una imagen o PDF de una transferencia bancaria, factura o recibo, tu rol es:
+- Confirmar que recibiste el comprobante.
+- Indicar que se está procesando la extracción de datos.
+- Informar qué información fue detectada (monto, fecha, remitente, banco).
+- Avisar si el documento no es legible o falta información clave.
+Respondé siempre en español, de forma clara y concisa. No inventes datos que no estén en el comprobante.`,
+    },
+    update: {},
+  });
+
   console.log("Roles de IA creados para empresa demo");
 }
 
