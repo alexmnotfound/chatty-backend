@@ -3,200 +3,137 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String
+  slug             String   @unique
+  active           Boolean  @default(false)
+  stripeCustomerId String?  @map("stripe_customer_id")
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  config        CompanyConfig?
-  teamMembers   TeamMember[]
+  bots          Bot[]
+  members       CompanyMember[]
   contacts      Contact[]
   conversations Conversation[]
-  aiRoles       AiRole[]
-  tasks         Task[]
-  activityLogs  ActivityLog[]
+  messages      Message[]
+
+  @@map("companies")
 }
 
-model CompanyConfig {
-  id                    String   @id @default(cuid())
-  companyId             String   @unique
-  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  whatsappPhoneNumberId String?
-  whatsappAccessToken   String?
-  whatsappAppSecret     String?
-  openAiApiKey          String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-}
-
-model SuperAdmin {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model TeamMember {
-  id        String   @id @default(cuid())
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  email     String   @unique
-  password  String
-  name      String
+model CompanyMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   role      String   @default("agent")
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at")
 
-  assignedConversations Conversation[]
-  assignedTasks         Task[]           @relation("AssignedTo")
-  createdTasks          Task[]           @relation("CreatedBy")
-  activityLogs          ActivityLog[]
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@unique([companyId, userId])
+  @@map("company_members")
+}
+
+model Bot {
+  id                     String   @id @default(uuid()) @db.Uuid
+  companyId              String   @map("company_id") @db.Uuid
+  name                   String
+  whatsappPhoneNumberId  String?  @map("whatsapp_phone_number_id")
+  whatsappAccessTokenEnc String?  @map("whatsapp_access_token_enc")
+  whatsappAppSecretEnc   String?  @map("whatsapp_app_secret_enc")
+  aiProvider             String?  @map("ai_provider")
+  aiApiKeyEnc            String?  @map("ai_api_key_enc")
+  aiModel                String?  @map("ai_model")
+  systemPrompt           String?  @map("system_prompt") @db.Text
+  gender                 String   @default("neutral")
+  tone                   String   @default("informal")
+  active                 Boolean  @default(false)
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  examples      BotExample[]
+  conversations Conversation[]
+  messages      Message[]
+
+  @@map("bots")
+}
+
+model BotExample {
+  id          String @id @default(uuid()) @db.Uuid
+  botId       String @map("bot_id") @db.Uuid
+  companyId   String @map("company_id") @db.Uuid
+  userMessage String @map("user_message") @db.Text
+  botResponse String @map("bot_response") @db.Text
+  order       Int    @default(0)
+
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@map("bot_examples")
 }
 
 model Contact {
-  id        String   @id @default(cuid())
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  waId      String
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  waId      String   @map("wa_id")
   name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at")
 
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   conversations Conversation[]
 
   @@unique([companyId, waId])
-  @@index([companyId])
-}
-
-model AiRole {
-  id           String   @id @default(cuid())
-  companyId    String
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  key          String
-  name         String
-  systemPrompt String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  conversations  Conversation[]
-  examples       AiRoleExample[]
-  knowledgeFiles AiRoleKnowledgeFile[]
-
-  @@unique([companyId, key])
-  @@index([companyId])
-}
-
-model AiRoleExample {
-  id        String   @id @default(cuid())
-  aiRoleId  String
-  aiRole    AiRole   @relation(fields: [aiRoleId], references: [id], onDelete: Cascade)
-  title     String
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model AiRoleKnowledgeFile {
-  id           String   @id @default(cuid())
-  aiRoleId     String
-  aiRole       AiRole   @relation(fields: [aiRoleId], references: [id], onDelete: Cascade)
-  originalName String
-  storedName   String
-  mimeType     String
-  size         Int
-  createdAt    DateTime @default(now())
+  @@map("contacts")
 }
 
 model Conversation {
-  id            String   @id @default(cuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contactId     String
-  contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  status        String   @default("ai")
-  unreadCount   Int      @default(0)
-  aiRoleId      String?
-  aiRole        AiRole?  @relation(fields: [aiRoleId], references: [id])
-  assignedToId  String?
-  assignedTo    TeamMember? @relation(fields: [assignedToId], references: [id])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  contactId   String   @map("contact_id") @db.Uuid
+  activeBotId String?  @map("active_bot_id") @db.Uuid
+  status      String   @default("ai")
+  unreadCount Int      @default(0) @map("unread_count")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  messages Message[]
-  tasks    Task[]
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id])
+  activeBot Bot?      @relation(fields: [activeBotId], references: [id])
+  messages  Message[]
 
-  @@unique([companyId, contactId])
-  @@index([companyId])
+  @@map("conversations")
 }
 
 model Message {
-  id             String   @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
   direction      String
-  waMessageId    String?
-  body           String
-  fromAi         Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  body           String   @db.Text
+  fromAi         Boolean  @default(false) @map("from_ai")
+  botId          String?  @map("bot_id") @db.Uuid
+  tokensIn       Int?     @map("tokens_in")
+  tokensOut      Int?     @map("tokens_out")
+  model          String?
+  costUsd        Decimal? @map("cost_usd") @db.Decimal(10, 6)
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  @@index([conversationId])
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  company      Company      @relation(fields: [companyId], references: [id])
+  bot          Bot?         @relation(fields: [botId], references: [id])
+
+  @@map("messages")
 }
 
-model Task {
-  id             String   @id @default(cuid())
-  companyId      String
-  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  title          String
-  description    String?
-  status         String   @default("pending")
-  createdById    String?
-  createdBy      TeamMember? @relation("CreatedBy", fields: [createdById], references: [id])
-  assignedToId   String?
-  assignedTo     TeamMember? @relation("AssignedTo", fields: [assignedToId], references: [id])
-  dueAt          DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model SuperAdmin {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  password  String
+  name      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
 
-  @@index([companyId])
-  @@index([conversationId])
-  @@index([assignedToId])
-  @@index([status])
-}
-
-model ActivityLog {
-  id             String   @id @default(cuid())
-  companyId      String?
-  company        Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  actorId        String?
-  actor          TeamMember? @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  entityType     String
-  action         String
-  entityId       String?
-  conversationId String?
-  taskId         String?
-  meta           Json?
-  createdAt      DateTime @default(now())
-
-  @@index([companyId])
-  @@index([entityType])
-  @@index([action])
-  @@index([conversationId])
-  @@index([taskId])
-  @@index([actorId])
-  @@index([createdAt])
+  @@map("super_admins")
 }
