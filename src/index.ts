@@ -1,4 +1,13 @@
 import "dotenv/config";
+
+if (!process.env.SUPABASE_JWT_SECRET || process.env.SUPABASE_JWT_SECRET.length < 32) {
+  console.error('FATAL: SUPABASE_JWT_SECRET must be set and at least 32 chars');
+  process.exit(1);
+}
+if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length < 64) {
+  console.error('FATAL: ENCRYPTION_KEY must be a 64-char hex string');
+  process.exit(1);
+}
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
