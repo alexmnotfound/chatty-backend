@@ -21,7 +21,7 @@ superCompaniesRouter.get("/", async (_req, res) => {
     id: c.id,
     name: c.name,
     slug: c.slug,
-    enabled: c.enabled,
+    active: c.active,
     createdAt: c.createdAt,
     teamMemberCount: c._count.teamMembers,
     conversationCount: c._count.conversations,
@@ -47,7 +47,7 @@ superCompaniesRouter.get("/:id", async (req, res) => {
     id: company.id,
     name: company.name,
     slug: company.slug,
-    enabled: company.enabled,
+    active: company.active,
     createdAt: company.createdAt,
     whatsappPhoneNumberId: company.config?.whatsappPhoneNumberId ?? null,
     teamMemberCount: company._count.teamMembers,
@@ -291,7 +291,7 @@ superCompaniesRouter.patch("/:id/bots/:botId/active", async (req, res) => {
 
 const patchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  enabled: z.boolean().optional(),
+  active: z.boolean().optional(),
 });
 
 superCompaniesRouter.patch("/:id", async (req, res) => {
@@ -302,7 +302,7 @@ superCompaniesRouter.patch("/:id", async (req, res) => {
   }
   const data: Record<string, unknown> = {};
   if (parsed.data.name !== undefined) data.name = parsed.data.name;
-  if (parsed.data.enabled !== undefined) data.enabled = parsed.data.enabled;
+  if (parsed.data.active !== undefined) data.active = parsed.data.active;
   if (Object.keys(data).length === 0) {
     res.status(400).json({ error: "Nada que actualizar" });
     return;
