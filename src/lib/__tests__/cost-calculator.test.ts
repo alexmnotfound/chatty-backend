@@ -25,4 +25,14 @@ describe('calculateCost', () => {
     const cost = calculateCost('claude-haiku-4-5-20251001', 1_000_000, 0);
     expect(cost).toBeCloseTo(0.80, 5);
   });
+
+  it('claude-sonnet-4-6: correct rate', () => {
+    const cost = calculateCost('claude-sonnet-4-6', 1_000_000, 0);
+    expect(cost).toBeCloseTo(3.00, 5);
+  });
+
+  it('claude-fable-5: correct rate', () => {
+    const cost = calculateCost('claude-fable-5', 1_000_000, 0);
+    expect(cost).toBeCloseTo(15.00, 5);
+  });
 });
