@@ -218,6 +218,7 @@ const handoffSchema = z.object({
 });
 conversationsRouter.post("/:id/handoff", async (req, res) => {
   const companyId = getCompanyId(req);
+  const member = (req as any).member;
   const parsed = handoffSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "botId debe ser un UUID o null" });
@@ -269,6 +270,15 @@ conversationsRouter.post("/:id/handoff", async (req, res) => {
       });
     }
 
+    void logActivity({
+      companyId,
+      actorId: member?.id,
+      action: "conversation.handoff",
+      entityType: "conversation",
+      entityId: conversation.id,
+      conversationId: conversation.id,
+      meta: { botId: botId ?? null },
+    });
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
