@@ -252,6 +252,43 @@ superCompaniesRouter.post("/", async (req, res) => {
   res.status(201).json(company);
 });
 
+superCompaniesRouter.get("/:id/bots", async (req, res) => {
+  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  if (!company) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+  try {
+    const bots = await prisma.bot.findMany({
+      where: { companyId: req.params.id },
+      select: { id: true, name: true, active: true, aiProvider: true, aiModel: true, whatsappPhoneNumberId: true },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(bots);
+  } catch {
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+superCompaniesRouter.patch("/:id/bots/:botId/active", async (req, res) => {
+  const { active } = req.body as { active: unknown };
+  if (typeof active !== "boolean") {
+    res.status(400).json({ error: "active debe ser un booleano" });
+    return;
+  }
+  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  if (!company) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+  try {
+    await prisma.bot.update({ where: { id: req.params.botId }, data: { active } });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 const patchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   enabled: z.boolean().optional(),
