@@ -11,37 +11,95 @@ router.use(requireAuth);
 // GET /api/bots — list bots for the company (no secrets)
 router.get('/', async (req, res) => {
   const { companyId } = req as AuthRequest;
-  const bots = await prisma.bot.findMany({
-    where: { companyId },
-    select: {
-      id: true, name: true, aiProvider: true, aiModel: true,
-      gender: true, tone: true, active: true, createdAt: true,
-      whatsappPhoneNumberId: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json(bots);
+  try {
+    const bots = await prisma.bot.findMany({
+      where: { companyId },
+      select: {
+        id: true, name: true, aiProvider: true, aiModel: true,
+        gender: true, tone: true, active: true, createdAt: true,
+        whatsappPhoneNumberId: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(bots);
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+const VerifySchema = z.object({
+  phoneNumberId: z.string().min(1),
+  accessToken: z.string().min(1),
+});
+
+// POST /api/bots/verify — verify WhatsApp credentials (plaintext, not saved)
+router.post('/verify', async (req, res) => {
+  const parsed = VerifySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { phoneNumberId, accessToken } = parsed.data;
+
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/v21.0/${phoneNumberId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const data = await response.json() as { error?: { message: string }; display_phone_number?: string };
+    if (data.error) return res.status(400).json({ error: data.error.message });
+    res.json({ valid: true, displayPhoneNumber: data.display_phone_number });
+  } catch {
+    res.status(500).json({ error: 'Error al verificar credenciales de WhatsApp' });
+  }
+});
+
+const TestAiSchema = z.object({
+  provider: z.enum(['openai', 'claude']),
+  apiKey: z.string().min(1),
+  model: z.string().min(1),
+});
+
+// POST /api/bots/test-ai — test AI key before saving (key arrives in plaintext, never stored here)
+router.post('/test-ai', async (req, res) => {
+  const parsed = TestAiSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { provider, apiKey, model } = parsed.data;
+
+  try {
+    const response = await getAIReply(
+      provider,
+      apiKey,
+      model,
+      'Eres un asistente de prueba.',
+      [{ role: 'user', content: 'Responde solo con "OK" para confirmar que funciona.' }]
+    );
+    res.json({ valid: true, response: response.text });
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Error al probar la API key' });
+  }
 });
 
 // GET /api/bots/:id — single bot (no secrets returned, includes examples)
 router.get('/:id', async (req, res) => {
   const { companyId } = req as unknown as AuthRequest;
-  const bot = await prisma.bot.findFirst({
-    where: { id: req.params.id, companyId },
-    include: {
-      examples: { orderBy: { order: 'asc' } },
-    },
-  });
-  if (!bot) return res.status(404).json({ error: 'No encontrado' });
+  try {
+    const bot = await prisma.bot.findFirst({
+      where: { id: req.params.id, companyId },
+      include: {
+        examples: { orderBy: { order: 'asc' } },
+      },
+    });
+    if (!bot) return res.status(404).json({ error: 'No encontrado' });
 
-  // Strip encrypted fields, return boolean flags instead
-  const { whatsappAccessTokenEnc, whatsappAppSecretEnc, aiApiKeyEnc, ...safeBot } = bot;
-  res.json({
-    ...safeBot,
-    hasWhatsappToken: !!whatsappAccessTokenEnc,
-    hasWhatsappAppSecret: !!whatsappAppSecretEnc,
-    hasAiApiKey: !!aiApiKeyEnc,
-  });
+    // Strip encrypted fields, return boolean flags instead
+    const { whatsappAccessTokenEnc, whatsappAppSecretEnc, aiApiKeyEnc, ...safeBot } = bot;
+    res.json({
+      ...safeBot,
+      hasWhatsappToken: !!whatsappAccessTokenEnc,
+      hasWhatsappAppSecret: !!whatsappAppSecretEnc,
+      hasAiApiKey: !!aiApiKeyEnc,
+    });
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 const ExampleSchema = z.object({
@@ -50,6 +108,7 @@ const ExampleSchema = z.object({
   order: z.number().int().min(0),
 });
 
+// `active` is intentionally excluded — bots are activated by super-admin only
 const BotSchema = z.object({
   name: z.string().min(1),
   whatsappPhoneNumberId: z.string().optional(),
@@ -72,21 +131,25 @@ router.post('/', async (req, res) => {
 
   const { examples, whatsappAccessToken, whatsappAppSecret, aiApiKey, ...rest } = parsed.data;
 
-  const bot = await prisma.bot.create({
-    data: {
-      companyId,
-      ...rest,
-      ...(whatsappAccessToken && { whatsappAccessTokenEnc: encrypt(whatsappAccessToken) }),
-      ...(whatsappAppSecret && { whatsappAppSecretEnc: encrypt(whatsappAppSecret) }),
-      ...(aiApiKey && { aiApiKeyEnc: encrypt(aiApiKey) }),
-      ...(examples && {
-        examples: {
-          create: examples.map(ex => ({ ...ex, companyId })),
-        },
-      }),
-    },
-  });
-  res.status(201).json({ id: bot.id });
+  try {
+    const bot = await prisma.bot.create({
+      data: {
+        companyId,
+        ...rest,
+        ...(whatsappAccessToken && { whatsappAccessTokenEnc: encrypt(whatsappAccessToken) }),
+        ...(whatsappAppSecret && { whatsappAppSecretEnc: encrypt(whatsappAppSecret) }),
+        ...(aiApiKey && { aiApiKeyEnc: encrypt(aiApiKey) }),
+        ...(examples && {
+          examples: {
+            create: examples.map(ex => ({ ...ex, companyId })),
+          },
+        }),
+      },
+    });
+    res.status(201).json({ id: bot.id });
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 // PATCH /api/bots/:id — update bot (partial)
@@ -131,47 +194,6 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
 
   await prisma.bot.delete({ where: { id: req.params.id } });
   res.json({ ok: true });
-});
-
-// POST /api/bots/verify — verify WhatsApp credentials (plaintext, not saved)
-router.post('/verify', async (req, res) => {
-  const { phoneNumberId, accessToken } = req.body;
-  if (!phoneNumberId || !accessToken) {
-    return res.status(400).json({ error: 'Faltan campos requeridos' });
-  }
-
-  try {
-    const response = await fetch(
-      `https://graph.facebook.com/v21.0/${phoneNumberId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const data = await response.json() as { error?: { message: string }; display_phone_number?: string };
-    if (data.error) return res.status(400).json({ error: data.error.message });
-    res.json({ valid: true, displayPhoneNumber: data.display_phone_number });
-  } catch {
-    res.status(500).json({ error: 'Error al verificar credenciales de WhatsApp' });
-  }
-});
-
-// POST /api/bots/test-ai — test AI key before saving (key arrives in plaintext, never stored here)
-router.post('/test-ai', async (req, res) => {
-  const { provider, apiKey, model } = req.body;
-  if (!provider || !apiKey || !model) {
-    return res.status(400).json({ error: 'Faltan campos requeridos' });
-  }
-
-  try {
-    const response = await getAIReply(
-      provider as 'openai' | 'claude',
-      apiKey,
-      model,
-      'Eres un asistente de prueba.',
-      [{ role: 'user', content: 'Responde solo con "OK" para confirmar que funciona.' }]
-    );
-    res.json({ valid: true, response: response.text });
-  } catch (err: unknown) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Error al probar la API key' });
-  }
 });
 
 export const botsRouter = router;
