@@ -8,6 +8,10 @@ if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length < 64) {
   console.error('FATAL: ENCRYPTION_KEY must be a 64-char hex string');
   process.exit(1);
 }
+if (!process.env.WEBHOOK_VERIFY_TOKEN) {
+  console.error('FATAL: WEBHOOK_VERIFY_TOKEN must be set');
+  process.exit(1);
+}
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -17,6 +21,7 @@ import { tasksRouter } from "./routes/tasks.js";
 import { aiRolesRouter } from "./routes/aiRoles.js";
 import { teamRouter } from "./routes/team.js";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook.js";
+import webhookRouter from "./routes/webhook.js";
 import { settingsRouter } from "./routes/settings.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { auditRouter } from "./routes/audit.js";
@@ -68,6 +73,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/metrics", metricsRouter);
 app.use("/api/audit", auditRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
+app.use("/webhook", webhookRouter);
 
 app.use("/api/bots", botsRouter);
 app.use("/api/super/auth", authLimiter, superAdminRouter);

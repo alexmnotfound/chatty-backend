@@ -183,7 +183,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const role = conversation.aiRole;
         if (!role) {
           if (credentials) {
-            await sendWhatsAppText(from, "Gracias por escribir. Un momento por favor, te atiende un humano.", credentials);
+            await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, "Gracias por escribir. Un momento por favor, te atiende un humano.");
           }
           continue;
         }
@@ -198,7 +198,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const reply = await getAiReply(role.systemPrompt, history, companyId);
 
         if (credentials) {
-          const sent = await sendWhatsAppText(from, reply, credentials);
+          const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, reply);
           if (sent) {
             const outMessage = await prisma.message.create({
               data: {

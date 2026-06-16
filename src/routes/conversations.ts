@@ -235,7 +235,7 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     res.status(502).json({ error: "WhatsApp no está configurado para esta empresa" });
     return;
   }
-  const sent = await sendWhatsAppText(conv.contact.waId, parsed.data.text, credentials);
+  const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, conv.contact.waId, parsed.data.text);
   if (!sent) {
     res.status(502).json({ error: "No se pudo enviar por WhatsApp" });
     return;

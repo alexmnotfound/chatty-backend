@@ -1,5 +1,3 @@
-import { prisma } from "../lib/prisma.js";
-
 const BASE = "https://graph.facebook.com/v21.0";
 
 export type WhatsAppCredentials = {
@@ -23,11 +21,12 @@ function buildArgentinaFallbackCandidates(normalized: string): string[] {
 async function sendToNumber(
   to: string,
   text: string,
-  auth: WhatsAppCredentials
+  phoneNumberId: string,
+  accessToken: string
 ): Promise<{ ok: boolean; status: number; err: string }> {
-  const res = await fetch(`${BASE}/${auth.phoneNumberId}/messages`, {
+  const res = await fetch(`${BASE}/${phoneNumberId}/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -50,12 +49,13 @@ function getMetaErrorCode(err: string): number | null {
 }
 
 export async function sendWhatsAppText(
+  phoneNumberId: string,
+  accessToken: string,
   to: string,
-  text: string,
-  credentials: WhatsAppCredentials
+  text: string
 ): Promise<boolean> {
   const normalized = to.replace(/\D/g, "");
-  const firstTry = await sendToNumber(normalized, text, credentials);
+  const firstTry = await sendToNumber(normalized, text, phoneNumberId, accessToken);
   if (firstTry.ok) return true;
 
   let attemptedRecipients = [normalized];
@@ -67,7 +67,7 @@ export async function sendWhatsAppText(
     const fallbackCandidates = buildArgentinaFallbackCandidates(normalized).filter((n) => n !== normalized);
     attemptedRecipients = attemptedRecipients.concat(fallbackCandidates);
     for (const candidate of fallbackCandidates) {
-      const result = await sendToNumber(candidate, text, credentials);
+      const result = await sendToNumber(candidate, text, phoneNumberId, accessToken);
       if (result.ok) return true;
       lastError = result.err;
       lastStatus = result.status;
@@ -81,10 +81,9 @@ export async function sendWhatsAppText(
   return false;
 }
 
-export async function getWhatsAppCredentials(companyId: string): Promise<WhatsAppCredentials | null> {
-  const config = await prisma.companyConfig.findUnique({ where: { companyId } });
-  const token = config?.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = config?.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+export async function getWhatsAppCredentials(_companyId: string): Promise<WhatsAppCredentials | null> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   if (!token || !phoneNumberId) return null;
   return { token, phoneNumberId };
 }
