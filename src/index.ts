@@ -3,7 +3,6 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { aiRolesRouter } from "./routes/aiRoles.js";
@@ -14,10 +13,6 @@ import { metricsRouter } from "./routes/metrics.js";
 import { auditRouter } from "./routes/audit.js";
 import { superAdminRouter } from "./routes/superAdmin.js";
 import { superCompaniesRouter } from "./routes/superCompanies.js";
-
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-  throw new Error("JWT_SECRET must be set to a strong random value (>=32 chars). Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
-}
 
 const app = express();
 app.use(helmet());
@@ -52,12 +47,9 @@ const webhookLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use("/api/auth/login", authLimiter);
-app.use("/api/auth/register", authLimiter);
 app.use("/api/", apiLimiter);
 app.use("/webhook/", webhookLimiter);
 
-app.use("/api/auth", authRouter);
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/ai-roles", aiRolesRouter);
