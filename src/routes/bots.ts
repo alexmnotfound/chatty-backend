@@ -155,45 +155,53 @@ router.post('/', async (req, res) => {
 // PATCH /api/bots/:id — update bot (partial)
 router.patch('/:id', async (req, res) => {
   const { companyId } = req as unknown as AuthRequest;
-  const existing = await prisma.bot.findFirst({ where: { id: req.params.id, companyId } });
-  if (!existing) return res.status(404).json({ error: 'No encontrado' });
+  try {
+    const existing = await prisma.bot.findFirst({ where: { id: req.params.id, companyId } });
+    if (!existing) return res.status(404).json({ error: 'No encontrado' });
 
-  const parsed = BotSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const parsed = BotSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { examples, whatsappAccessToken, whatsappAppSecret, aiApiKey, ...rest } = parsed.data;
+    const { examples, whatsappAccessToken, whatsappAppSecret, aiApiKey, ...rest } = parsed.data;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.bot.update({
-      where: { id: req.params.id },
-      data: {
-        ...rest,
-        ...(whatsappAccessToken && { whatsappAccessTokenEnc: encrypt(whatsappAccessToken) }),
-        ...(whatsappAppSecret && { whatsappAppSecretEnc: encrypt(whatsappAppSecret) }),
-        ...(aiApiKey && { aiApiKeyEnc: encrypt(aiApiKey) }),
-      },
-    });
-    if (examples !== undefined) {
-      await tx.botExample.deleteMany({ where: { botId: req.params.id } });
-      if (examples.length > 0) {
-        await tx.botExample.createMany({
-          data: examples.map(ex => ({ ...ex, botId: req.params.id, companyId })),
-        });
+    await prisma.$transaction(async (tx) => {
+      await tx.bot.update({
+        where: { id: req.params.id },
+        data: {
+          ...rest,
+          ...(whatsappAccessToken && { whatsappAccessTokenEnc: encrypt(whatsappAccessToken) }),
+          ...(whatsappAppSecret && { whatsappAppSecretEnc: encrypt(whatsappAppSecret) }),
+          ...(aiApiKey && { aiApiKeyEnc: encrypt(aiApiKey) }),
+        },
+      });
+      if (examples !== undefined) {
+        await tx.botExample.deleteMany({ where: { botId: req.params.id } });
+        if (examples.length > 0) {
+          await tx.botExample.createMany({
+            data: examples.map(ex => ({ ...ex, botId: req.params.id, companyId })),
+          });
+        }
       }
-    }
-  });
+    });
 
-  res.json({ ok: true });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 // DELETE /api/bots/:id — admin only
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const { companyId } = req as AuthRequest;
-  const existing = await prisma.bot.findFirst({ where: { id: req.params.id, companyId } });
-  if (!existing) return res.status(404).json({ error: 'No encontrado' });
+  try {
+    const existing = await prisma.bot.findFirst({ where: { id: req.params.id, companyId } });
+    if (!existing) return res.status(404).json({ error: 'No encontrado' });
 
-  await prisma.bot.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+    await prisma.bot.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 export const botsRouter = router;
