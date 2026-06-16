@@ -213,6 +213,68 @@ conversationsRouter.patch("/:id/ai-role", async (req, res) => {
   res.json(conv);
 });
 
+const handoffSchema = z.object({
+  botId: z.string().uuid().nullable(),
+});
+conversationsRouter.post("/:id/handoff", async (req, res) => {
+  const companyId = getCompanyId(req);
+  const parsed = handoffSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "botId debe ser un UUID o null" });
+    return;
+  }
+  const { botId } = parsed.data;
+
+  try {
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: req.params.id, companyId },
+    });
+    if (!conversation) {
+      res.status(404).json({ error: "Conversación no encontrada" });
+      return;
+    }
+
+    if (botId) {
+      const bot = await prisma.bot.findFirst({ where: { id: botId, companyId, active: true } });
+      if (!bot) {
+        res.status(400).json({ error: "Bot no encontrado o inactivo" });
+        return;
+      }
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { activeBotId: botId, status: "ai", updatedAt: new Date() },
+      });
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          companyId,
+          direction: "out",
+          body: `[Sistema] Conversación transferida a ${bot.name}`,
+          fromAi: false,
+        },
+      });
+    } else {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { activeBotId: null, status: "human", updatedAt: new Date() },
+      });
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          companyId,
+          direction: "out",
+          body: "[Sistema] Conversación tomada por un agente humano",
+          fromAi: false,
+        },
+      });
+    }
+
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 const sendSchema = z.object({ text: z.string().min(1).max(4096) });
 conversationsRouter.post("/:id/send", async (req, res) => {
   const companyId = getCompanyId(req);
