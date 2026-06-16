@@ -21,6 +21,7 @@ model Company {
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
+  botExamples   BotExample[]
 
   @@map("companies")
 }
@@ -28,6 +29,7 @@ model Company {
 model CompanyMember {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @map("company_id") @db.Uuid
+  // user_id references auth.users managed by Supabase Auth — no Prisma relation possible
   userId    String   @map("user_id") @db.Uuid
   role      String   @default("agent")
   createdAt DateTime @default(now()) @map("created_at")
@@ -59,6 +61,7 @@ model Bot {
   conversations Conversation[]
   messages      Message[]
 
+  @@index([companyId])
   @@map("bots")
 }
 
@@ -70,8 +73,11 @@ model BotExample {
   botResponse String @map("bot_response") @db.Text
   order       Int    @default(0)
 
-  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  bot     Bot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@index([botId])
+  @@index([companyId])
   @@map("bot_examples")
 }
 
@@ -86,6 +92,7 @@ model Contact {
   conversations Conversation[]
 
   @@unique([companyId, waId])
+  @@index([companyId])
   @@map("contacts")
 }
 
@@ -96,13 +103,17 @@ model Conversation {
   activeBotId String?  @map("active_bot_id") @db.Uuid
   status      String   @default("ai")
   unreadCount Int      @default(0) @map("unread_count")
+  createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contact   Contact   @relation(fields: [contactId], references: [id])
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   activeBot Bot?      @relation(fields: [activeBotId], references: [id])
   messages  Message[]
 
+  @@index([companyId])
+  @@index([contactId])
+  @@index([activeBotId])
   @@map("conversations")
 }
 
@@ -121,9 +132,12 @@ model Message {
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  company      Company      @relation(fields: [companyId], references: [id])
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   bot          Bot?         @relation(fields: [botId], references: [id])
 
+  @@index([conversationId])
+  @@index([companyId])
+  @@index([botId])
   @@map("messages")
 }
 
