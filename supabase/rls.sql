@@ -23,11 +23,22 @@ CREATE POLICY "members see own company" ON companies
 
 -- Allow insert during registration (new company creation before member row exists)
 CREATE POLICY "allow insert for authenticated" ON companies
-  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "members update own company" ON companies
+  FOR UPDATE USING (id IN (SELECT user_company_ids()))
+  WITH CHECK (id IN (SELECT user_company_ids()));
 
 -- company_members: see and manage members of own companies
-CREATE POLICY "tenant isolation" ON company_members
-  FOR ALL USING (company_id IN (SELECT user_company_ids()));
+CREATE POLICY "tenant select" ON company_members
+  FOR SELECT USING (company_id IN (SELECT user_company_ids()));
+
+CREATE POLICY "tenant update" ON company_members
+  FOR UPDATE USING (company_id IN (SELECT user_company_ids()))
+  WITH CHECK (company_id IN (SELECT user_company_ids()));
+
+CREATE POLICY "tenant delete" ON company_members
+  FOR DELETE USING (company_id IN (SELECT user_company_ids()));
 
 -- Allow insert for self-registration (user inserts their own membership)
 CREATE POLICY "allow self insert" ON company_members
