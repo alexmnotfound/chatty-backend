@@ -22,6 +22,7 @@ import { metricsRouter } from "./routes/metrics.js";
 import { auditRouter } from "./routes/audit.js";
 import { superAdminRouter } from "./routes/superAdmin.js";
 import { superCompaniesRouter } from "./routes/superCompanies.js";
+import { botsRouter } from "./routes/bots.js";
 
 const app = express();
 app.use(helmet());
@@ -68,6 +69,7 @@ app.use("/api/metrics", metricsRouter);
 app.use("/api/audit", auditRouter);
 app.use("/webhook/whatsapp", whatsappWebhookRouter);
 
+app.use("/api/bots", botsRouter);
 app.use("/api/super/auth", authLimiter, superAdminRouter);
 app.use("/api/super/companies", superCompaniesRouter);
 
