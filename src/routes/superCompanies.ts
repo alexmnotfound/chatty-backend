@@ -549,3 +549,57 @@ superCompaniesRouter.delete("/:id/plugins/:companyPluginId", async (req, res) =>
   }
   res.status(204).send();
 });
+
+superCompaniesRouter.get("/:id/billing", async (req, res) => {
+  const { data: company } = await supabase
+    .from("companies").select("id, plan, internal_notes").eq("id", req.params.id).maybeSingle();
+  if (!company) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+  const { data: assignedPlugins } = await supabase
+    .from("company_plugins")
+    .select("id, plugin_id, assigned_at, plugins(name, icon, price_usd)")
+    .eq("company_id", req.params.id);
+
+  const plugins = (assignedPlugins ?? []).map((row: any) => ({
+    id: row.id,
+    pluginId: row.plugin_id,
+    name: row.plugins?.name ?? "—",
+    icon: row.plugins?.icon ?? null,
+    price_usd: Number(row.plugins?.price_usd ?? 0),
+    assignedAt: row.assigned_at,
+  }));
+
+  res.json({
+    plan: company.plan ?? "free",
+    internal_notes: company.internal_notes ?? "",
+    monthlyTotal: plugins.reduce((sum, p) => sum + p.price_usd, 0),
+    plugins,
+  });
+});
+
+const billingPatchSchema = z.object({
+  plan: z.enum(["free", "starter", "pro", "custom"]).optional(),
+  internal_notes: z.string().max(2000).optional(),
+});
+
+superCompaniesRouter.patch("/:id/billing", async (req, res) => {
+  const parsed = billingPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Datos inválidos" });
+    return;
+  }
+  if (Object.keys(parsed.data).length === 0) {
+    res.status(400).json({ error: "Nada que actualizar" });
+    return;
+  }
+  const { data, error } = await supabase
+    .from("companies").update(parsed.data).eq("id", req.params.id)
+    .select("id, plan, internal_notes").single();
+  if (error || !data) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+  res.json(data);
+});
