@@ -37,19 +37,19 @@ async function main() {
   const { data: existingSA } = await supabase
     .from("super_admins")
     .select("id")
-    .eq("email", "super@chatty.com")
+    .eq("email", "super@demo.com")
     .maybeSingle();
   if (!existingSA) {
     const hash = await bcrypt.hash(PASSWORD, 10);
     const { error } = await supabase.from("super_admins").insert({
-      email: "super@chatty.com",
+      email: "super@demo.com",
       password: hash,
       name: "Super Admin",
     });
     if (error) throw error;
-    console.log("✓ Super admin: super@chatty.com");
+    console.log("✓ Super admin: super@demo.com");
   } else {
-    console.log("– Super admin ya existe: super@chatty.com");
+    console.log("– Super admin ya existe: super@demo.com");
   }
 
   // 2. Demo company
@@ -124,7 +124,7 @@ async function main() {
   }
 
   console.log("\nCredenciales (todos con password: test1234):");
-  console.log("  super@chatty.com  — Super Admin");
+  console.log("  super@demo.com  — Super Admin");
   console.log("  admin@demo.com    — Company Admin");
   console.log("  agent@demo.com    — Company Agent");
 }

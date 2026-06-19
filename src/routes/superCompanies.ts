@@ -10,7 +10,7 @@ superCompaniesRouter.use(requireSuperAuth);
 superCompaniesRouter.get("/", async (_req, res) => {
   const { data: companies, error } = await supabase
     .from("companies")
-    .select("id, name, slug, active, created_at, enabled")
+    .select("id, name, slug, active, created_at")
     .order("created_at", { ascending: false });
   if (error) {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -30,7 +30,6 @@ superCompaniesRouter.get("/", async (_req, res) => {
         name: c.name,
         slug: c.slug,
         active: c.active,
-        enabled: c.enabled,
         createdAt: c.created_at,
         teamMemberCount: teamMemberCount ?? 0,
         conversationCount: conversationCount ?? 0,
@@ -71,7 +70,6 @@ superCompaniesRouter.get("/:id", async (req, res) => {
     name: company.name,
     slug: company.slug,
     active: company.active,
-    enabled: company.enabled,
     createdAt: company.created_at,
     whatsappPhoneNumberId: cfg?.whatsapp_phone_number_id ?? null,
     teamMemberCount: teamMemberCount ?? 0,
@@ -146,7 +144,7 @@ superCompaniesRouter.post("/", async (req, res) => {
   // Create company
   const { data: company, error: companyError } = await supabase
     .from("companies")
-    .insert({ name, slug, active: true, enabled: true })
+    .insert({ name, slug, active: true })
     .select()
     .single();
   if (companyError || !company) {
