@@ -482,3 +482,70 @@ superCompaniesRouter.delete("/:id/team/:memberId", async (req, res) => {
   }
   res.status(204).send();
 });
+
+superCompaniesRouter.get("/:id/plugins", async (req, res) => {
+  const { data, error } = await supabase
+    .from("company_plugins")
+    .select("id, plugin_id, assigned_at, assigned_by, plugins(name, icon, price_usd)")
+    .eq("company_id", req.params.id)
+    .order("assigned_at", { ascending: false });
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.json(
+    (data ?? []).map((row: any) => ({
+      id: row.id,
+      pluginId: row.plugin_id,
+      name: row.plugins?.name ?? "—",
+      icon: row.plugins?.icon ?? null,
+      price_usd: Number(row.plugins?.price_usd ?? 0),
+      assignedAt: row.assigned_at,
+      assignedBy: row.assigned_by,
+    }))
+  );
+});
+
+const assignPluginSchema = z.object({
+  pluginId: z.string().uuid(),
+  assignedBy: z.string().email().nullish(),
+});
+
+superCompaniesRouter.post("/:id/plugins", async (req, res) => {
+  const parsed = assignPluginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Datos inválidos" });
+    return;
+  }
+  const { data: plugin } = await supabase
+    .from("plugins").select("id").eq("id", parsed.data.pluginId).maybeSingle();
+  if (!plugin) {
+    res.status(404).json({ error: "Plugin no encontrado" });
+    return;
+  }
+  const { data, error } = await supabase
+    .from("company_plugins")
+    .insert({ company_id: req.params.id, plugin_id: parsed.data.pluginId, assigned_by: parsed.data.assignedBy })
+    .select().single();
+  if (error) {
+    const isDupe = (error as any).code === "23505";
+    res.status(isDupe ? 400 : 500).json({
+      error: isDupe ? "La empresa ya tiene este plugin" : "Error interno del servidor",
+    });
+    return;
+  }
+  res.status(201).json(data);
+});
+
+superCompaniesRouter.delete("/:id/plugins/:companyPluginId", async (req, res) => {
+  const { error } = await supabase
+    .from("company_plugins")
+    .delete()
+    .eq("id", req.params.companyPluginId)
+    .eq("company_id", req.params.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.status(204).send();
+});
