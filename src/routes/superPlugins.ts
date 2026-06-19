@@ -71,7 +71,7 @@ superPluginsRouter.post("/", async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    res.status(201).json(data);
+    res.status(201).json({ ...data, createdAt: data.created_at, companiesCount: 0 });
   } catch (error) {
     console.error("[super/plugins POST error]", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Error interno del servidor" });
@@ -109,11 +109,15 @@ superPluginsRouter.patch("/:id", async (req, res) => {
       .eq("id", req.params.id)
       .select()
       .single();
-    if (error || !data) {
+    if (error) {
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
+    if (!data) {
       res.status(404).json({ error: "Plugin no encontrado" });
       return;
     }
-    res.json(data);
+    res.json({ ...data, createdAt: data.created_at, companiesCount: 0 });
   } catch (error) {
     console.error("[super/plugins PATCH error]", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Error interno del servidor" });
