@@ -29,6 +29,7 @@ import { superAdminRouter } from "./routes/superAdmin.js";
 import { superCompaniesRouter } from "./routes/superCompanies.js";
 import { superUsersRouter } from "./routes/superUsers.js";
 import { superDashboardRouter } from "./routes/superDashboard.js";
+import { superPluginsRouter } from "./routes/superPlugins.js";
 import { botsRouter } from "./routes/bots.js";
 
 const app = express();
@@ -82,6 +83,7 @@ app.use("/api/super/auth", authLimiter, superAdminRouter);
 app.use("/api/super/companies", superCompaniesRouter);
 app.use("/api/super/users", superUsersRouter);
 app.use("/api/super/dashboard", superDashboardRouter);
+app.use("/api/super/plugins", superPluginsRouter);
 
 // Global error handler — never leak stack traces
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
