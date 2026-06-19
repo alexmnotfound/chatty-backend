@@ -1,9 +1,7 @@
 import OpenAI from "openai";
-import { prisma } from "../lib/prisma.js";
 
-async function getOpenAiApiKey(companyId: string): Promise<string> {
-  const cfg = await prisma.companyConfig.findUnique({ where: { companyId } });
-  return cfg?.openAiApiKey || process.env.OPENAI_API_KEY || "";
+async function getOpenAiApiKey(_companyId: string): Promise<string> {
+  return process.env.OPENAI_API_KEY || "";
 }
 
 export async function getAiReply(

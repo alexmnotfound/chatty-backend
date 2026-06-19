@@ -190,7 +190,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const updatedConv = await prisma.conversation.findUnique({
           where: { id: conversation.id },
-          include: { messages: { orderBy: { createdAt: "asc" } } },
+          include: { messages: { orderBy: { createdAt: "asc" }, take: 30 } },
         });
         if (!updatedConv) continue;
 
