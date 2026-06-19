@@ -404,12 +404,12 @@ superCompaniesRouter.post("/:id/team", async (req, res) => {
       email, password, email_confirm: true, user_metadata: { name },
     });
     if (authError || !authUser?.user) {
-      res.status(400).json({ error: authError?.message ?? "Error al crear usuario" });
+      res.status(400).json({ error: "Error al crear usuario" });
       return;
     }
     userId = authUser.user.id;
   } else {
-    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    const { data: { users }, error } = await supabase.auth.admin.listUsers({ perPage: 1000 });
     if (error) {
       res.status(500).json({ error: "Error interno del servidor" });
       return;
