@@ -375,3 +375,110 @@ superCompaniesRouter.patch("/:id", async (req, res) => {
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });
+
+const addMemberSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(100),
+  password: z.string().min(6).optional(),
+  role: z.enum(["admin", "agent"]).default("agent"),
+});
+
+superCompaniesRouter.post("/:id/team", async (req, res) => {
+  const parsed = addMemberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Datos inválidos", details: parsed.error.flatten().fieldErrors });
+    return;
+  }
+  const { email, name, password, role } = parsed.data;
+  const companyId = req.params.id;
+
+  const { data: company } = await supabase.from("companies").select("id").eq("id", companyId).maybeSingle();
+  if (!company) {
+    res.status(404).json({ error: "Empresa no encontrada" });
+    return;
+  }
+
+  let userId: string;
+  if (password) {
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email, password, email_confirm: true, user_metadata: { name },
+    });
+    if (authError || !authUser?.user) {
+      res.status(400).json({ error: authError?.message ?? "Error al crear usuario" });
+      return;
+    }
+    userId = authUser.user.id;
+  } else {
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    if (error) {
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
+    const existing = users.find(u => u.email === email);
+    if (!existing) {
+      res.status(404).json({ error: "No existe un usuario con ese email" });
+      return;
+    }
+    userId = existing.id;
+  }
+
+  const { data: existingMember } = await supabase
+    .from("company_members").select("id").eq("company_id", companyId).eq("user_id", userId).maybeSingle();
+  if (existingMember) {
+    res.status(400).json({ error: "El usuario ya es miembro de esta empresa" });
+    return;
+  }
+
+  const { data: member, error: memberError } = await supabase
+    .from("company_members")
+    .insert({ company_id: companyId, user_id: userId, email, name, role, enabled: true })
+    .select("id, email, name, role, enabled, created_at")
+    .single();
+  if (memberError || !member) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.status(201).json(member);
+});
+
+const patchMemberSchema = z.object({
+  role: z.enum(["admin", "agent"]).optional(),
+  enabled: z.boolean().optional(),
+});
+
+superCompaniesRouter.patch("/:id/team/:memberId", async (req, res) => {
+  const parsed = patchMemberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Datos inválidos" });
+    return;
+  }
+  if (Object.keys(parsed.data).length === 0) {
+    res.status(400).json({ error: "Nada que actualizar" });
+    return;
+  }
+  const { data, error } = await supabase
+    .from("company_members")
+    .update(parsed.data)
+    .eq("id", req.params.memberId)
+    .eq("company_id", req.params.id)
+    .select("id, email, name, role, enabled")
+    .single();
+  if (error || !data) {
+    res.status(404).json({ error: "Miembro no encontrado" });
+    return;
+  }
+  res.json(data);
+});
+
+superCompaniesRouter.delete("/:id/team/:memberId", async (req, res) => {
+  const { error } = await supabase
+    .from("company_members")
+    .delete()
+    .eq("id", req.params.memberId)
+    .eq("company_id", req.params.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.status(204).send();
+});
