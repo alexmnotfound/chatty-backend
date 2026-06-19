@@ -1,5 +1,4 @@
 import { Router, type Request } from "express";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
 import { requireSuperAuth } from "../middleware/superAuth.js";
@@ -139,8 +138,6 @@ superCompaniesRouter.post("/", async (req, res) => {
     return;
   }
 
-  const hash = await bcrypt.hash(adminPassword, 10);
-
   // Create company
   const { data: company, error: companyError } = await supabase
     .from("companies")
@@ -155,13 +152,25 @@ superCompaniesRouter.post("/", async (req, res) => {
   // Create company_config
   await supabase.from("company_config").insert({ company_id: company.id });
 
-  // Create admin member
+  // Create Supabase auth user + company_member
+  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+    email: adminEmail,
+    password: adminPassword,
+    email_confirm: true,
+    user_metadata: { name: adminName },
+  });
+  if (authError || !authUser?.user) {
+    await supabase.from("companies").delete().eq("id", company.id);
+    res.status(500).json({ error: "Error al crear usuario" });
+    return;
+  }
+
   const { data: adminMember } = await supabase
     .from("company_members")
     .insert({
       company_id: company.id,
+      user_id: authUser.user.id,
       email: adminEmail,
-      password: hash,
       name: adminName,
       role: "admin",
     })

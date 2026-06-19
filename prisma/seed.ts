@@ -11,14 +11,14 @@ const supabase = createClient(
 const PASSWORD = "test1234";
 
 async function upsertAuthUser(email: string, name: string): Promise<string> {
-  const { data: existing } = await supabase
+  const { data: existingMember } = await supabase
     .from("company_members")
     .select("user_id")
     .eq("email", email)
     .maybeSingle();
-  if (existing) {
+  if (existingMember) {
     console.log(`– Auth user ya existe: ${email}`);
-    return existing.user_id;
+    return existingMember.user_id;
   }
 
   const { data, error } = await supabase.auth.admin.createUser({
@@ -27,6 +27,16 @@ async function upsertAuthUser(email: string, name: string): Promise<string> {
     email_confirm: true,
     user_metadata: { name },
   });
+
+  if (error?.code === "email_exists") {
+    const { data: { users } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const existing = users.find((u) => u.email === email);
+    if (existing) {
+      console.log(`– Auth user ya existe en auth: ${email}`);
+      return existing.id;
+    }
+    throw error;
+  }
   if (error) throw error;
   console.log(`✓ Auth user creado: ${email}`);
   return data.user.id;
