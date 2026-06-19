@@ -29,6 +29,9 @@ superDashboardRouter.get("/", async (_req, res) => {
       supabase.from("company_plugins").select("plugin_id, plugins(name, icon)"),
     ]);
 
+    if (companiesActiveResult.error) throw companiesActiveResult.error;
+    if (usersTotalResult.error) throw usersTotalResult.error;
+
     const companiesActive = companiesActiveResult.count ?? 0;
     const usersTotal = usersTotalResult.count ?? 0;
     let conversationsToday = conversationsTodayResult.count ?? 0;
@@ -82,7 +85,7 @@ superDashboardRouter.get("/", async (_req, res) => {
       topPlugins,
     });
   } catch (error) {
-    console.error("[super/dashboard error]", error);
+    console.error("[super/dashboard error]", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Error al obtener datos del dashboard" });
   }
 });
