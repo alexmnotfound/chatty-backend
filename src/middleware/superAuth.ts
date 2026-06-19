@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 
 const JWT_SECRET: string = process.env.JWT_SECRET ?? "";
 
@@ -19,7 +19,7 @@ export async function requireSuperAuth(req: Request, res: Response, next: NextFu
       res.status(401).json({ error: "Token inválido para esta operación" });
       return;
     }
-    const admin = await prisma.superAdmin.findUnique({ where: { id: payload.superAdminId } });
+    const { data: admin } = await supabase.from("super_admins").select("*").eq("id", payload.superAdminId).maybeSingle();
     if (!admin || !admin.enabled) {
       res.status(401).json({ error: "Cuenta no encontrada o deshabilitada" });
       return;

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { z } from "zod";
 import { logActivity } from "../lib/activityLogger.js";
 import { getCompanyId } from "../middleware/tenant.js";
@@ -9,42 +9,75 @@ import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.j
 export const conversationsRouter = Router();
 conversationsRouter.use(requireAuth);
 
+// Helper: fetch a full conversation with all relations
+async function fetchFullConversation(id: string) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(`
+      *,
+      contact:contacts(*),
+      aiRole:ai_roles(*),
+      assignedTo:company_members!assigned_to_id(id, name, email),
+      messages(* ),
+      tasks(*, assignedTo:company_members!assigned_to_id(id, name, email))
+    `)
+    .eq("id", id)
+    .single();
+  if (error) return null;
+  // Sort messages asc, tasks desc
+  if (data.messages) data.messages.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  if (data.tasks) data.tasks.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return data;
+}
+
 conversationsRouter.get("/", async (req, res) => {
   const companyId = getCompanyId(req);
-  const list = await prisma.conversation.findMany({
-    where: { companyId },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-  });
-  res.json(list);
+  const { data: list, error } = await supabase
+    .from("conversations")
+    .select(`
+      *,
+      contact:contacts(*),
+      aiRole:ai_roles(*),
+      assignedTo:company_members!assigned_to_id(id, name, email),
+      messages(*)
+    `)
+    .eq("company_id", companyId)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  // Keep only the latest message per conversation
+  const result = (list ?? []).map((c: any) => ({
+    ...c,
+    messages: c.messages
+      ? [...c.messages].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 1)
+      : [],
+  }));
+  res.json(result);
 });
 
 conversationsRouter.get("/:id", async (req, res) => {
   const companyId = getCompanyId(req);
-  const conv = await prisma.conversation.findFirst({
-    where: { id: req.params.id, companyId },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "asc" } },
-      tasks: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          assignedTo: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
-  if (!conv) {
+  const { data: conv, error } = await supabase
+    .from("conversations")
+    .select(`
+      *,
+      contact:contacts(*),
+      aiRole:ai_roles(*),
+      assignedTo:company_members!assigned_to_id(id, name, email),
+      messages(*),
+      tasks(*, assignedTo:company_members!assigned_to_id(id, name, email))
+    `)
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (error || !conv) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
+  if (conv.messages) conv.messages.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  if (conv.tasks) conv.tasks.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   res.json(conv);
 });
 
@@ -57,34 +90,35 @@ conversationsRouter.patch("/:id/read-state", async (req, res) => {
     res.status(400).json({ error: "Dato inválido" });
     return;
   }
-  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
-  const conv = await prisma.conversation.update({
-    where: { id: existing.id },
-    data: { unreadCount: parsed.data.unread ? 1 : 0 },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "asc" } },
-      tasks: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          assignedTo: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ unread_count: parsed.data.unread ? 1 : 0 })
+    .eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const conv = await fetchFullConversation(existing.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "conversation.read_state",
     entityType: "conversation",
-    entityId: conv.id,
-    conversationId: conv.id,
+    entityId: existing.id,
+    conversationId: existing.id,
     meta: { unread: parsed.data.unread },
   });
   res.json(conv);
@@ -96,38 +130,36 @@ conversationsRouter.post("/:id/take-over", async (req, res) => {
   const member = (req as any).member;
   const parsed = takeOverSchema.safeParse(req.body);
   const assignToMe = parsed.success && parsed.data.assignToMe !== false;
-  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
-  const conv = await prisma.conversation.update({
-    where: { id: existing.id },
-    data: {
-      status: "human",
-      assignedToId: assignToMe ? member.id : null,
-    },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "asc" } },
-      tasks: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          assignedTo: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ status: "human", assigned_to_id: assignToMe ? member.id : null })
+    .eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const conv = await fetchFullConversation(existing.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "conversation.take_over",
     entityType: "conversation",
-    entityId: conv.id,
-    conversationId: conv.id,
-    meta: { assignedToId: conv.assignedToId, status: conv.status },
+    entityId: existing.id,
+    conversationId: existing.id,
+    meta: { assignedToId: assignToMe ? member.id : null, status: "human" },
   });
   res.json(conv);
 });
@@ -135,37 +167,35 @@ conversationsRouter.post("/:id/take-over", async (req, res) => {
 conversationsRouter.post("/:id/release-to-ai", async (req, res) => {
   const companyId = getCompanyId(req);
   const member = (req as any).member as { id: string };
-  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
-  const conv = await prisma.conversation.update({
-    where: { id: existing.id },
-    data: {
-      status: "ai",
-      assignedToId: null,
-    },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "asc" } },
-      tasks: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          assignedTo: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ status: "ai", assigned_to_id: null })
+    .eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const conv = await fetchFullConversation(existing.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "conversation.release_to_ai",
     entityType: "conversation",
-    entityId: conv.id,
-    conversationId: conv.id,
+    entityId: existing.id,
+    conversationId: existing.id,
   });
   res.json(conv);
 });
@@ -180,34 +210,35 @@ conversationsRouter.patch("/:id/ai-role", async (req, res) => {
     return;
   }
   const { aiRoleId } = setRoleParsed.data;
-  const existing = await prisma.conversation.findFirst({ where: { id: req.params.id, companyId } });
+
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
-  const conv = await prisma.conversation.update({
-    where: { id: existing.id },
-    data: { aiRoleId },
-    include: {
-      contact: true,
-      aiRole: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-      messages: { orderBy: { createdAt: "asc" } },
-      tasks: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          assignedTo: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ ai_role_id: aiRoleId })
+    .eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const conv = await fetchFullConversation(existing.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "conversation.set_ai_role",
     entityType: "conversation",
-    entityId: conv.id,
-    conversationId: conv.id,
+    entityId: existing.id,
+    conversationId: existing.id,
     meta: { aiRoleId },
   });
   res.json(conv);
@@ -227,46 +258,51 @@ conversationsRouter.post("/:id/handoff", async (req, res) => {
   const { botId } = parsed.data;
 
   try {
-    const conversation = await prisma.conversation.findFirst({
-      where: { id: req.params.id, companyId },
-    });
+    const { data: conversation } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("id", req.params.id)
+      .eq("company_id", companyId)
+      .maybeSingle();
     if (!conversation) {
       res.status(404).json({ error: "Conversación no encontrada" });
       return;
     }
 
     if (botId) {
-      const bot = await prisma.bot.findFirst({ where: { id: botId, companyId, active: true } });
+      const { data: bot } = await supabase
+        .from("bots")
+        .select("*")
+        .eq("id", botId)
+        .eq("company_id", companyId)
+        .eq("active", true)
+        .maybeSingle();
       if (!bot) {
         res.status(400).json({ error: "Bot no encontrado o inactivo" });
         return;
       }
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { activeBotId: botId, status: "ai", updatedAt: new Date() },
-      });
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          companyId,
-          direction: "out",
-          body: `[Sistema] Conversación transferida a ${bot.name}`,
-          fromAi: false,
-        },
+      await supabase
+        .from("conversations")
+        .update({ active_bot_id: botId, status: "ai", updated_at: new Date().toISOString() })
+        .eq("id", conversation.id);
+      await supabase.from("messages").insert({
+        conversation_id: conversation.id,
+        company_id: companyId,
+        direction: "out",
+        body: `[Sistema] Conversación transferida a ${bot.name}`,
+        from_ai: false,
       });
     } else {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { activeBotId: null, status: "human", updatedAt: new Date() },
-      });
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          companyId,
-          direction: "out",
-          body: "[Sistema] Conversación tomada por un agente humano",
-          fromAi: false,
-        },
+      await supabase
+        .from("conversations")
+        .update({ active_bot_id: null, status: "human", updated_at: new Date().toISOString() })
+        .eq("id", conversation.id);
+      await supabase.from("messages").insert({
+        conversation_id: conversation.id,
+        company_id: companyId,
+        direction: "out",
+        body: "[Sistema] Conversación tomada por un agente humano",
+        from_ai: false,
       });
     }
 
@@ -294,36 +330,49 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     res.status(400).json({ error: "Texto requerido" });
     return;
   }
-  const conv = await prisma.conversation.findFirst({
-    where: { id: req.params.id, companyId },
-    include: { contact: true },
-  });
+
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("*, contact:contacts(*)")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!conv) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
+
   const credentials = await getWhatsAppCredentials(companyId);
   if (!credentials) {
     res.status(502).json({ error: "WhatsApp no está configurado para esta empresa" });
     return;
   }
-  const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, conv.contact.waId, parsed.data.text);
+  const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, conv.contact.wa_id, parsed.data.text);
   if (!sent) {
     res.status(502).json({ error: "No se pudo enviar por WhatsApp" });
     return;
   }
-  const message = await prisma.message.create({
-    data: {
-      conversationId: conv.id,
+
+  const { data: message, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conv.id,
       direction: "out",
       body: parsed.data.text,
-      fromAi: false,
-    },
-  });
-  await prisma.conversation.update({
-    where: { id: conv.id },
-    data: { updatedAt: new Date() },
-  });
+      from_ai: false,
+    })
+    .select()
+    .single();
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", conv.id);
+
   void logActivity({
     companyId,
     actorId: member?.id,

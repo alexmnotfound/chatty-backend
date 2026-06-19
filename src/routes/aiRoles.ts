@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { getCompanyId } from "../middleware/tenant.js";
 import multer from "multer";
 import fs from "node:fs";
@@ -53,25 +53,40 @@ aiRolesRouter.get("/", async (req, res) => {
   const companyId = getCompanyId(req);
   const member = (req as Request & { member: { role: string } }).member;
   const isAdmin = member.role === "admin";
+
   if (isAdmin) {
-    const roles = await prisma.aiRole.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      include: {
-        examples: { orderBy: { createdAt: "asc" } },
-        knowledgeFiles: { orderBy: { createdAt: "desc" } },
-      },
+    const { data: roles, error } = await supabase
+      .from("ai_roles")
+      .select(`
+        *,
+        examples:ai_role_examples(*),
+        knowledgeFiles:ai_role_knowledge_files(*)
+      `)
+      .eq("company_id", companyId)
+      .order("name", { ascending: true });
+    if (error) {
+      res.status(500).json({ error: "Error interno del servidor" });
+      return;
+    }
+    // Sort examples asc, knowledgeFiles desc
+    (roles ?? []).forEach((r: any) => {
+      if (r.examples) r.examples.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      if (r.knowledgeFiles) r.knowledgeFiles.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     });
-    res.json(roles);
+    res.json(roles ?? []);
     return;
   }
 
-  const roles = await prisma.aiRole.findMany({
-    where: { companyId },
-    orderBy: { name: "asc" },
-    select: { id: true, key: true, name: true },
-  });
-  res.json(roles);
+  const { data: roles, error } = await supabase
+    .from("ai_roles")
+    .select("id, key, name")
+    .eq("company_id", companyId)
+    .order("name", { ascending: true });
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.json(roles ?? []);
 });
 
 const patchSchema = z.object({
@@ -91,22 +106,34 @@ aiRolesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     return;
   }
   const { id } = req.params;
-  const existing = await prisma.aiRole.findFirst({ where: { id, companyId } });
+  const { data: existing } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
-  const updated = await prisma.aiRole.update({
-    where: { id: existing.id },
-    data: {
-      ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-      ...(parsed.data.systemPrompt !== undefined ? { systemPrompt: parsed.data.systemPrompt } : {}),
-    },
-    include: {
-      examples: { orderBy: { createdAt: "asc" } },
-      knowledgeFiles: { orderBy: { createdAt: "desc" } },
-    },
-  });
+
+  const updateData: Record<string, unknown> = {};
+  if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
+  if (parsed.data.systemPrompt !== undefined) updateData.system_prompt = parsed.data.systemPrompt;
+
+  const { error } = await supabase.from("ai_roles").update(updateData).eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const { data: updated } = await supabase
+    .from("ai_roles")
+    .select(`*, examples:ai_role_examples(*), knowledgeFiles:ai_role_knowledge_files(*)`)
+    .eq("id", existing.id)
+    .single();
+  if (updated?.examples) updated.examples.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  if (updated?.knowledgeFiles) updated.knowledgeFiles.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   res.json(updated);
 });
 
@@ -122,25 +149,40 @@ aiRolesRouter.post("/:id/examples", requireRole("admin"), async (req, res) => {
     res.status(400).json({ error: "Ejemplo inválido" });
     return;
   }
-  const role = await prisma.aiRole.findFirst({
-    where: { id: req.params.id, companyId },
-    include: { examples: true },
-  });
+
+  const { data: role } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!role) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
-  if (role.examples.length >= 3) {
+
+  const { count } = await supabase
+    .from("ai_role_examples")
+    .select("id", { count: "exact", head: true })
+    .eq("ai_role_id", role.id);
+  if ((count ?? 0) >= 3) {
     res.status(400).json({ error: "Cada bot permite hasta 3 conversaciones de ejemplo" });
     return;
   }
-  const created = await prisma.aiRoleExample.create({
-    data: {
-      aiRoleId: role.id,
+
+  const { data: created, error } = await supabase
+    .from("ai_role_examples")
+    .insert({
+      ai_role_id: role.id,
       title: parsed.data.title.trim(),
       content: parsed.data.content.trim(),
-    },
-  });
+    })
+    .select()
+    .single();
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
   res.status(201).json(created);
 });
 
@@ -156,51 +198,89 @@ aiRolesRouter.patch("/:id/examples/:exampleId", requireRole("admin"), async (req
     res.status(400).json({ error: "Actualización de ejemplo inválida" });
     return;
   }
+
   // Verify the role belongs to this company
-  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  const { data: role } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!role) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
-  const existing = await prisma.aiRoleExample.findFirst({
-    where: { id: req.params.exampleId, aiRoleId: role.id },
-  });
+
+  const { data: existing } = await supabase
+    .from("ai_role_examples")
+    .select("id")
+    .eq("id", req.params.exampleId)
+    .eq("ai_role_id", role.id)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Ejemplo no encontrado" });
     return;
   }
-  const updated = await prisma.aiRoleExample.update({
-    where: { id: existing.id },
-    data: {
-      ...(parsed.data.title !== undefined ? { title: parsed.data.title.trim() } : {}),
-      ...(parsed.data.content !== undefined ? { content: parsed.data.content.trim() } : {}),
-    },
-  });
+
+  const updateData: Record<string, unknown> = {};
+  if (parsed.data.title !== undefined) updateData.title = parsed.data.title.trim();
+  if (parsed.data.content !== undefined) updateData.content = parsed.data.content.trim();
+
+  const { data: updated, error } = await supabase
+    .from("ai_role_examples")
+    .update(updateData)
+    .eq("id", existing.id)
+    .select()
+    .single();
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
   res.json(updated);
 });
 
 aiRolesRouter.delete("/:id/examples/:exampleId", requireRole("admin"), async (req, res) => {
   const companyId = getCompanyId(req);
+
   // Verify the role belongs to this company
-  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  const { data: role } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!role) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
-  const existing = await prisma.aiRoleExample.findFirst({
-    where: { id: req.params.exampleId, aiRoleId: role.id },
-  });
+
+  const { data: existing } = await supabase
+    .from("ai_role_examples")
+    .select("id")
+    .eq("id", req.params.exampleId)
+    .eq("ai_role_id", role.id)
+    .maybeSingle();
   if (!existing) {
     res.status(404).json({ error: "Ejemplo no encontrado" });
     return;
   }
-  await prisma.aiRoleExample.delete({ where: { id: existing.id } });
+
+  const { error } = await supabase.from("ai_role_examples").delete().eq("id", existing.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
   res.status(204).send();
 });
 
 aiRolesRouter.post("/:id/knowledge-files", requireRole("admin"), uploadPdf.single("file"), async (req, res) => {
   const companyId = getCompanyId(req);
-  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  const { data: role } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!role) {
     if (req.file?.path) fs.unlink(req.file.path, () => undefined);
     res.status(404).json({ error: "Rol de IA no encontrado" });
@@ -215,35 +295,57 @@ aiRolesRouter.post("/:id/knowledge-files", requireRole("admin"), uploadPdf.singl
     res.status(400).json({ error: "El archivo no es un PDF válido" });
     return;
   }
-  const created = await prisma.aiRoleKnowledgeFile.create({
-    data: {
-      aiRoleId: role.id,
-      originalName: req.file.originalname,
-      storedName: req.file.filename,
-      mimeType: req.file.mimetype,
+
+  const { data: created, error } = await supabase
+    .from("ai_role_knowledge_files")
+    .insert({
+      ai_role_id: role.id,
+      original_name: req.file.originalname,
+      stored_name: req.file.filename,
+      mime_type: req.file.mimetype,
       size: req.file.size,
-    },
-  });
+    })
+    .select()
+    .single();
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
   res.status(201).json(created);
 });
 
 aiRolesRouter.delete("/:id/knowledge-files/:fileId", requireRole("admin"), async (req, res) => {
   const companyId = getCompanyId(req);
+
   // Verify the role belongs to this company
-  const role = await prisma.aiRole.findFirst({ where: { id: req.params.id, companyId } });
+  const { data: role } = await supabase
+    .from("ai_roles")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!role) {
     res.status(404).json({ error: "Rol de IA no encontrado" });
     return;
   }
-  const file = await prisma.aiRoleKnowledgeFile.findFirst({
-    where: { id: req.params.fileId, aiRoleId: role.id },
-  });
+
+  const { data: file } = await supabase
+    .from("ai_role_knowledge_files")
+    .select("*")
+    .eq("id", req.params.fileId)
+    .eq("ai_role_id", role.id)
+    .maybeSingle();
   if (!file) {
     res.status(404).json({ error: "Archivo no encontrado" });
     return;
   }
-  await prisma.aiRoleKnowledgeFile.delete({ where: { id: file.id } });
-  const absolute = path.resolve(uploadDir, file.storedName);
+
+  const { error } = await supabase.from("ai_role_knowledge_files").delete().eq("id", file.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  const absolute = path.resolve(uploadDir, file.stored_name);
   fs.unlink(absolute, () => undefined);
   res.status(204).send();
 });

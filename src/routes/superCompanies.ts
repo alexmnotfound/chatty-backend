@@ -1,77 +1,109 @@
 import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { requireSuperAuth } from "../middleware/superAuth.js";
 
 export const superCompaniesRouter = Router();
 superCompaniesRouter.use(requireSuperAuth);
 
 superCompaniesRouter.get("/", async (_req, res) => {
-  const companies = await prisma.company.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { teamMembers: true, conversations: true } },
-      config: {
-        select: { whatsappPhoneNumberId: true },
-      },
-    },
-  });
-  const result = companies.map((c) => ({
-    id: c.id,
-    name: c.name,
-    slug: c.slug,
-    active: c.active,
-    createdAt: c.createdAt,
-    teamMemberCount: c._count.teamMembers,
-    conversationCount: c._count.conversations,
-    whatsappPhoneNumberId: c.config?.whatsappPhoneNumberId ?? null,
-  }));
+  const { data: companies, error } = await supabase
+    .from("companies")
+    .select("id, name, slug, active, created_at, enabled")
+    .order("created_at", { ascending: false });
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  // Fetch counts and configs separately
+  const result = await Promise.all(
+    (companies ?? []).map(async (c: any) => {
+      const [{ count: teamMemberCount }, { count: conversationCount }, { data: cfg }] = await Promise.all([
+        supabase.from("company_members").select("id", { count: "exact", head: true }).eq("company_id", c.id),
+        supabase.from("conversations").select("id", { count: "exact", head: true }).eq("company_id", c.id),
+        supabase.from("company_config").select("whatsapp_phone_number_id").eq("company_id", c.id).maybeSingle(),
+      ]);
+      return {
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        active: c.active,
+        enabled: c.enabled,
+        createdAt: c.created_at,
+        teamMemberCount: teamMemberCount ?? 0,
+        conversationCount: conversationCount ?? 0,
+        whatsappPhoneNumberId: cfg?.whatsapp_phone_number_id ?? null,
+      };
+    })
+  );
   res.json(result);
 });
 
 superCompaniesRouter.get("/:id", async (req, res) => {
-  const company = await prisma.company.findUnique({
-    where: { id: req.params.id },
-    include: {
-      config: { select: { whatsappPhoneNumberId: true } },
-      _count: { select: { teamMembers: true, conversations: true, aiRoles: true, tasks: true } },
-    },
-  });
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", req.params.id)
+    .maybeSingle();
   if (!company) {
     res.status(404).json({ error: "Empresa no encontrada" });
     return;
   }
-  const cfg = await prisma.companyConfig.findUnique({ where: { companyId: company.id } });
+
+  const [
+    { count: teamMemberCount },
+    { count: conversationCount },
+    { count: aiRoleCount },
+    { count: taskCount },
+    { data: cfg },
+  ] = await Promise.all([
+    supabase.from("company_members").select("id", { count: "exact", head: true }).eq("company_id", company.id),
+    supabase.from("conversations").select("id", { count: "exact", head: true }).eq("company_id", company.id),
+    supabase.from("ai_roles").select("id", { count: "exact", head: true }).eq("company_id", company.id),
+    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("company_id", company.id),
+    supabase.from("company_config").select("*").eq("company_id", company.id).maybeSingle(),
+  ]);
+
   res.json({
     id: company.id,
     name: company.name,
     slug: company.slug,
     active: company.active,
-    createdAt: company.createdAt,
-    whatsappPhoneNumberId: company.config?.whatsappPhoneNumberId ?? null,
-    teamMemberCount: company._count.teamMembers,
-    conversationCount: company._count.conversations,
-    aiRoleCount: company._count.aiRoles,
-    taskCount: company._count.tasks,
-    hasWhatsAppAccessToken: Boolean(cfg?.whatsappAccessToken),
-    hasWhatsAppAppSecret: Boolean(cfg?.whatsappAppSecret),
-    hasOpenAiApiKey: Boolean(cfg?.openAiApiKey),
+    enabled: company.enabled,
+    createdAt: company.created_at,
+    whatsappPhoneNumberId: cfg?.whatsapp_phone_number_id ?? null,
+    teamMemberCount: teamMemberCount ?? 0,
+    conversationCount: conversationCount ?? 0,
+    aiRoleCount: aiRoleCount ?? 0,
+    taskCount: taskCount ?? 0,
+    hasWhatsAppAccessToken: Boolean(cfg?.whatsapp_access_token),
+    hasWhatsAppAppSecret: Boolean(cfg?.whatsapp_app_secret),
+    hasOpenAiApiKey: Boolean(cfg?.open_ai_api_key),
   });
 });
 
 superCompaniesRouter.get("/:id/team", async (req, res) => {
-  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("id", req.params.id)
+    .maybeSingle();
   if (!company) {
     res.status(404).json({ error: "Empresa no encontrada" });
     return;
   }
-  const members = await prisma.teamMember.findMany({
-    where: { companyId: company.id },
-    select: { id: true, name: true, email: true, role: true, enabled: true },
-    orderBy: { name: "asc" },
-  });
-  res.json(members);
+  const { data: members, error } = await supabase
+    .from("company_members")
+    .select("id, name, email, role, enabled")
+    .eq("company_id", company.id)
+    .order("name", { ascending: true });
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.json(members ?? []);
 });
 
 const createSchema = z.object({
@@ -90,12 +122,20 @@ superCompaniesRouter.post("/", async (req, res) => {
   }
   const { name, slug, adminEmail, adminPassword, adminName } = parsed.data;
 
-  const existingSlug = await prisma.company.findUnique({ where: { slug } });
+  const { data: existingSlug } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
   if (existingSlug) {
     res.status(400).json({ error: "Ya existe una empresa con ese slug" });
     return;
   }
-  const existingEmail = await prisma.teamMember.findUnique({ where: { email: adminEmail } });
+  const { data: existingEmail } = await supabase
+    .from("company_members")
+    .select("id")
+    .eq("email", adminEmail)
+    .maybeSingle();
   if (existingEmail) {
     res.status(400).json({ error: "Ya existe un usuario con ese email" });
     return;
@@ -103,168 +143,168 @@ superCompaniesRouter.post("/", async (req, res) => {
 
   const hash = await bcrypt.hash(adminPassword, 10);
 
-  const company = await prisma.company.create({
-    data: {
-      name,
-      slug,
-      config: { create: {} },
-      teamMembers: {
-        create: {
-          email: adminEmail,
-          password: hash,
-          name: adminName,
-          role: "admin",
-        },
-      },
-    },
-    include: {
-      teamMembers: { select: { id: true, email: true, name: true, role: true } },
-    },
-  });
+  // Create company
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .insert({ name, slug, active: true, enabled: true })
+    .select()
+    .single();
+  if (companyError || !company) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
 
-  // Seed default AI roles for the new company
+  // Create company_config
+  await supabase.from("company_config").insert({ company_id: company.id });
+
+  // Create admin member
+  const { data: adminMember } = await supabase
+    .from("company_members")
+    .insert({
+      company_id: company.id,
+      email: adminEmail,
+      password: hash,
+      name: adminName,
+      role: "admin",
+    })
+    .select("id, email, name, role")
+    .single();
+
+  // Seed default AI roles
   const [receptionistRole, sellerRole] = await Promise.all([
-    prisma.aiRole.create({
-      data: {
-        companyId: company.id,
-        key: "receptionist",
-        name: "Recepcionista",
-        systemPrompt: "Eres una recepcionista amable y profesional. Saludá, respondé consultas básicas y derivá a un humano cuando sea necesario. Responde siempre en español, breve y claro.",
-      },
-    }),
-    prisma.aiRole.create({
-      data: {
-        companyId: company.id,
-        key: "seller",
-        name: "Vendedor",
-        systemPrompt: "Eres un vendedor profesional y cercano. Preguntá qué necesita el cliente, recomendá productos o servicios y cerrá citas o pedidos cuando sea posible. Responde en español, breve y orientado a la venta.",
-      },
-    }),
+    supabase.from("ai_roles").insert({
+      company_id: company.id,
+      key: "receptionist",
+      name: "Recepcionista",
+      system_prompt: "Eres una recepcionista amable y profesional. Saludá, respondé consultas básicas y derivá a un humano cuando sea necesario. Responde siempre en español, breve y claro.",
+    }).select().single(),
+    supabase.from("ai_roles").insert({
+      company_id: company.id,
+      key: "seller",
+      name: "Vendedor",
+      system_prompt: "Eres un vendedor profesional y cercano. Preguntá qué necesita el cliente, recomendá productos o servicios y cerrá citas o pedidos cuando sea posible. Responde en español, breve y orientado a la venta.",
+    }).select().single(),
   ]);
 
-  // Seed example conversations for each bot
-  const demoContacts = await Promise.all([
-    prisma.contact.create({
-      data: { companyId: company.id, waId: "5491100000001", name: "María (ejemplo)" },
-    }),
-    prisma.contact.create({
-      data: { companyId: company.id, waId: "5491100000002", name: "Carlos (ejemplo)" },
-    }),
+  // Seed demo contacts
+  const [contact1Res, contact2Res] = await Promise.all([
+    supabase.from("contacts").insert({ company_id: company.id, wa_id: "5491100000001", name: "María (ejemplo)" }).select().single(),
+    supabase.from("contacts").insert({ company_id: company.id, wa_id: "5491100000002", name: "Carlos (ejemplo)" }).select().single(),
   ]);
+  const demoContacts = [contact1Res.data, contact2Res.data];
 
-  const demoConversations = await Promise.all([
-    prisma.conversation.create({
-      data: {
-        companyId: company.id,
-        contactId: demoContacts[0].id,
-        status: "ai",
-        aiRoleId: receptionistRole.id,
-      },
-    }),
-    prisma.conversation.create({
-      data: {
-        companyId: company.id,
-        contactId: demoContacts[1].id,
-        status: "ai",
-        aiRoleId: sellerRole.id,
-      },
-    }),
+  // Seed demo conversations
+  const [conv1Res, conv2Res] = await Promise.all([
+    supabase.from("conversations").insert({
+      company_id: company.id,
+      contact_id: demoContacts[0]?.id,
+      status: "ai",
+      ai_role_id: receptionistRole.data?.id,
+    }).select().single(),
+    supabase.from("conversations").insert({
+      company_id: company.id,
+      contact_id: demoContacts[1]?.id,
+      status: "ai",
+      ai_role_id: sellerRole.data?.id,
+    }).select().single(),
   ]);
+  const demoConversations = [conv1Res.data, conv2Res.data];
 
-  // Example messages for Recepcionista conversation
+  // Example messages for Recepcionista
   const now = new Date();
-  await prisma.message.createMany({
-    data: [
-      {
-        conversationId: demoConversations[0].id,
-        direction: "in",
-        body: "Hola, buenas tardes! Quería saber el horario de atención.",
-        createdAt: new Date(now.getTime() - 4 * 60000),
-      },
-      {
-        conversationId: demoConversations[0].id,
-        direction: "out",
-        body: "¡Hola María! Bienvenida 😊 Nuestro horario de atención es de lunes a viernes de 9 a 18 hs. ¿Hay algo más en lo que pueda ayudarte?",
-        fromAi: true,
-        createdAt: new Date(now.getTime() - 3 * 60000),
-      },
-      {
-        conversationId: demoConversations[0].id,
-        direction: "in",
-        body: "Sí, necesito hablar con alguien de ventas por un presupuesto.",
-        createdAt: new Date(now.getTime() - 2 * 60000),
-      },
-      {
-        conversationId: demoConversations[0].id,
-        direction: "out",
-        body: "¡Por supuesto! Te paso con nuestro equipo de ventas para que te ayuden con el presupuesto. Un momento, por favor.",
-        fromAi: true,
-        createdAt: new Date(now.getTime() - 1 * 60000),
-      },
-    ],
-  });
+  await supabase.from("messages").insert([
+    {
+      conversation_id: demoConversations[0]?.id,
+      direction: "in",
+      body: "Hola, buenas tardes! Quería saber el horario de atención.",
+      created_at: new Date(now.getTime() - 4 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[0]?.id,
+      direction: "out",
+      body: "¡Hola María! Bienvenida 😊 Nuestro horario de atención es de lunes a viernes de 9 a 18 hs. ¿Hay algo más en lo que pueda ayudarte?",
+      from_ai: true,
+      created_at: new Date(now.getTime() - 3 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[0]?.id,
+      direction: "in",
+      body: "Sí, necesito hablar con alguien de ventas por un presupuesto.",
+      created_at: new Date(now.getTime() - 2 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[0]?.id,
+      direction: "out",
+      body: "¡Por supuesto! Te paso con nuestro equipo de ventas para que te ayuden con el presupuesto. Un momento, por favor.",
+      from_ai: true,
+      created_at: new Date(now.getTime() - 1 * 60000).toISOString(),
+    },
+  ]);
 
-  // Example messages for Vendedor conversation
-  await prisma.message.createMany({
-    data: [
-      {
-        conversationId: demoConversations[1].id,
-        direction: "in",
-        body: "Hola! Estoy buscando información sobre sus servicios.",
-        createdAt: new Date(now.getTime() - 5 * 60000),
-      },
-      {
-        conversationId: demoConversations[1].id,
-        direction: "out",
-        body: "¡Hola Carlos! Qué gusto saludarte. Contame, ¿qué tipo de servicio estás necesitando? Así te puedo orientar mejor.",
-        fromAi: true,
-        createdAt: new Date(now.getTime() - 4 * 60000),
-      },
-      {
-        conversationId: demoConversations[1].id,
-        direction: "in",
-        body: "Necesito el plan premium para mi empresa, somos 15 personas.",
-        createdAt: new Date(now.getTime() - 3 * 60000),
-      },
-      {
-        conversationId: demoConversations[1].id,
-        direction: "out",
-        body: "¡Excelente! El plan premium es ideal para equipos de ese tamaño. Incluye soporte prioritario y funcionalidades avanzadas. ¿Te gustaría que agendemos una llamada para revisar los detalles y un precio especial para tu empresa?",
-        fromAi: true,
-        createdAt: new Date(now.getTime() - 2 * 60000),
-      },
-      {
-        conversationId: demoConversations[1].id,
-        direction: "in",
-        body: "Dale, sí, el jueves a la mañana me viene bien.",
-        createdAt: new Date(now.getTime() - 1 * 60000),
-      },
-      {
-        conversationId: demoConversations[1].id,
-        direction: "out",
-        body: "¡Perfecto! Te agendo para el jueves a las 10 hs. Te voy a enviar un recordatorio el día anterior. ¡Gracias por tu interés, Carlos!",
-        fromAi: true,
-        createdAt: new Date(now.getTime()),
-      },
-    ],
-  });
+  // Example messages for Vendedor
+  await supabase.from("messages").insert([
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "in",
+      body: "Hola! Estoy buscando información sobre sus servicios.",
+      created_at: new Date(now.getTime() - 5 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "out",
+      body: "¡Hola Carlos! Qué gusto saludarte. Contame, ¿qué tipo de servicio estás necesitando? Así te puedo orientar mejor.",
+      from_ai: true,
+      created_at: new Date(now.getTime() - 4 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "in",
+      body: "Necesito el plan premium para mi empresa, somos 15 personas.",
+      created_at: new Date(now.getTime() - 3 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "out",
+      body: "¡Excelente! El plan premium es ideal para equipos de ese tamaño. Incluye soporte prioritario y funcionalidades avanzadas. ¿Te gustaría que agendemos una llamada para revisar los detalles y un precio especial para tu empresa?",
+      from_ai: true,
+      created_at: new Date(now.getTime() - 2 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "in",
+      body: "Dale, sí, el jueves a la mañana me viene bien.",
+      created_at: new Date(now.getTime() - 1 * 60000).toISOString(),
+    },
+    {
+      conversation_id: demoConversations[1]?.id,
+      direction: "out",
+      body: "¡Perfecto! Te agendo para el jueves a las 10 hs. Te voy a enviar un recordatorio el día anterior. ¡Gracias por tu interés, Carlos!",
+      from_ai: true,
+      created_at: new Date(now.getTime()).toISOString(),
+    },
+  ]);
 
-  res.status(201).json(company);
+  res.status(201).json({ ...company, teamMembers: adminMember ? [adminMember] : [] });
 });
 
 superCompaniesRouter.get("/:id/bots", async (req, res) => {
-  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("id", req.params.id)
+    .maybeSingle();
   if (!company) {
     res.status(404).json({ error: "Empresa no encontrada" });
     return;
   }
   try {
-    const bots = await prisma.bot.findMany({
-      where: { companyId: req.params.id },
-      select: { id: true, name: true, active: true, aiProvider: true, aiModel: true, whatsappPhoneNumberId: true },
-      orderBy: { createdAt: "desc" },
-    });
-    res.json(bots);
+    const { data: bots, error } = await supabase
+      .from("bots")
+      .select("id, name, active, ai_provider, ai_model, whatsapp_phone_number_id")
+      .eq("company_id", req.params.id)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json(bots ?? []);
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -276,13 +316,21 @@ superCompaniesRouter.patch("/:id/bots/:botId/active", async (req, res) => {
     res.status(400).json({ error: "active debe ser un booleano" });
     return;
   }
-  const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("id", req.params.id)
+    .maybeSingle();
   if (!company) {
     res.status(404).json({ error: "Empresa no encontrada" });
     return;
   }
   try {
-    await prisma.bot.update({ where: { id: req.params.botId }, data: { active } });
+    const { error } = await supabase
+      .from("bots")
+      .update({ active })
+      .eq("id", req.params.botId);
+    if (error) throw error;
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -307,9 +355,16 @@ superCompaniesRouter.patch("/:id", async (req, res) => {
     res.status(400).json({ error: "Nada que actualizar" });
     return;
   }
-  const company = await prisma.company.update({
-    where: { id: req.params.id },
-    data,
-  });
-  res.json(company);
+  try {
+    const { data: company, error } = await supabase
+      .from("companies")
+      .update(data)
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json(company);
+  } catch {
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
 });

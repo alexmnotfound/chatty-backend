@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { z } from "zod";
 import { logActivity } from "../lib/activityLogger.js";
 import { getCompanyId } from "../middleware/tenant.js";
@@ -16,51 +16,86 @@ const createSchema = z.object({
   dueAt: z.string().datetime().optional(),
 });
 
+// Helper: fetch a task with all relations
+async function fetchFullTask(id: string) {
+  const { data } = await supabase
+    .from("tasks")
+    .select(`
+      *,
+      conversation:conversations(*, contact:contacts(*), messages(*)),
+      createdBy:company_members!created_by_id(id, name),
+      assignedTo:company_members!assigned_to_id(id, name, email)
+    `)
+    .eq("id", id)
+    .single();
+  if (data?.conversation?.messages) {
+    data.conversation.messages.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }
+  return data;
+}
+
 tasksRouter.get("/", async (req, res) => {
   const companyId = getCompanyId(req);
   const status = req.query.status as string | undefined;
   const assignedToId = req.query.assignedToId as string | undefined;
-  const list = await prisma.task.findMany({
-    where: {
-      companyId,
-      ...(status ? { status } : {}),
-      ...(assignedToId ? { assignedToId } : {}),
-    },
-    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-    include: {
-      conversation: { include: { contact: true } },
-      createdBy: { select: { id: true, name: true } },
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-  });
-  res.json(list);
+
+  let query = supabase
+    .from("tasks")
+    .select(`
+      *,
+      conversation:conversations(*, contact:contacts(*)),
+      createdBy:company_members!created_by_id(id, name),
+      assignedTo:company_members!assigned_to_id(id, name, email)
+    `)
+    .eq("company_id", companyId)
+    .order("status", { ascending: true })
+    .order("created_at", { ascending: false });
+
+  if (status) query = query.eq("status", status);
+  if (assignedToId) query = query.eq("assigned_to_id", assignedToId);
+
+  const { data: list, error } = await query;
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+  res.json(list ?? []);
 });
 
 tasksRouter.get("/:id", async (req, res) => {
   const companyId = getCompanyId(req);
-  const task = await prisma.task.findFirst({
-    where: { id: req.params.id, companyId },
-    include: {
-      conversation: {
-        include: {
-          contact: true,
-          messages: { orderBy: { createdAt: "asc" } },
-        },
-      },
-      createdBy: { select: { id: true, name: true } },
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-  });
-  if (!task) {
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select(`
+      *,
+      conversation:conversations(*, contact:contacts(*), messages(*)),
+      createdBy:company_members!created_by_id(id, name),
+      assignedTo:company_members!assigned_to_id(id, name, email)
+    `)
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (error || !task) {
     res.status(404).json({ error: "Tarea no encontrada" });
     return;
+  }
+  if (task.conversation?.messages) {
+    task.conversation.messages.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }
   res.json(task);
 });
 
-async function assertAssignableMemberId(assignedToId: string | undefined | null, companyId: string): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+async function assertAssignableMemberId(
+  assignedToId: string | undefined | null,
+  companyId: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
   if (assignedToId == null || assignedToId === "") return { ok: true, id: null };
-  const assignee = await prisma.teamMember.findFirst({ where: { id: assignedToId, companyId } });
+  const { data: assignee } = await supabase
+    .from("company_members")
+    .select("id, enabled")
+    .eq("id", assignedToId)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!assignee) return { ok: false, error: "Usuario asignado no encontrado" };
   if (!assignee.enabled) return { ok: false, error: "Ese usuario está deshabilitado" };
   return { ok: true, id: assignedToId };
@@ -75,45 +110,56 @@ tasksRouter.post("/", async (req, res) => {
     res.status(400).json({ error: "Datos inválidos" });
     return;
   }
+
   // Verify the conversation belongs to this company
-  const conv = await prisma.conversation.findFirst({ where: { id: parsed.data.conversationId, companyId } });
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", parsed.data.conversationId)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!conv) {
     res.status(404).json({ error: "Conversación no encontrada" });
     return;
   }
+
   const assignCheck = await assertAssignableMemberId(parsed.data.assignedToId, companyId);
   if (!assignCheck.ok) {
     res.status(400).json({ error: assignCheck.error });
     return;
   }
-  const task = await prisma.task.create({
-    data: {
-      companyId,
-      conversationId: conv.id,
+
+  const { data: newTask, error } = await supabase
+    .from("tasks")
+    .insert({
+      company_id: companyId,
+      conversation_id: conv.id,
       title: parsed.data.title,
       description: parsed.data.description ?? null,
-      assignedToId: assignCheck.id,
-      dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null,
-      createdById: member.id,
-    },
-    include: {
-      conversation: { include: { contact: true } },
-      createdBy: { select: { id: true, name: true } },
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-  });
+      assigned_to_id: assignCheck.id,
+      due_at: parsed.data.dueAt ?? null,
+      created_by_id: member.id,
+    })
+    .select()
+    .single();
+  if (error || !newTask) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const task = await fetchFullTask(newTask.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "task.create",
     entityType: "task",
-    entityId: task.id,
-    conversationId: task.conversationId,
-    taskId: task.id,
+    entityId: newTask.id,
+    conversationId: conv.id,
+    taskId: newTask.id,
     meta: {
-      title: task.title,
-      assignedToId: task.assignedToId,
-      dueAt: task.dueAt,
+      title: newTask.title,
+      assignedToId: newTask.assigned_to_id,
+      dueAt: newTask.due_at,
     },
   });
   res.status(201).json(task);
@@ -126,6 +172,7 @@ const updateSchema = z.object({
   assignedToId: z.string().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
 });
+
 tasksRouter.patch("/:id", async (req, res) => {
   const companyId = getCompanyId(req);
   const member = (req as any).member as { id: string };
@@ -141,36 +188,47 @@ tasksRouter.patch("/:id", async (req, res) => {
       return;
     }
   }
-  const data: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.dueAt !== undefined) data.dueAt = parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
 
-  const before = await prisma.task.findFirst({ where: { id: req.params.id, companyId } });
+  const { data: before } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!before) {
     res.status(404).json({ error: "Tarea no encontrada" });
     return;
   }
-  const task = await prisma.task.update({
-    where: { id: before.id },
-    data,
-    include: {
-      conversation: { include: { contact: true } },
-      createdBy: { select: { id: true, name: true } },
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-  });
 
+  const updateData: Record<string, unknown> = {};
+  if (parsed.data.title !== undefined) updateData.title = parsed.data.title;
+  if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
+  if (parsed.data.status !== undefined) updateData.status = parsed.data.status;
+  if (parsed.data.assignedToId !== undefined) updateData.assigned_to_id = parsed.data.assignedToId;
+  if (parsed.data.dueAt !== undefined) updateData.due_at = parsed.data.dueAt ?? null;
+
+  const { error } = await supabase
+    .from("tasks")
+    .update(updateData)
+    .eq("id", before.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const task = await fetchFullTask(before.id);
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "task.update",
     entityType: "task",
-    entityId: task.id,
-    conversationId: task.conversationId,
-    taskId: task.id,
+    entityId: before.id,
+    conversationId: before.conversation_id,
+    taskId: before.id,
     meta: {
-      fromStatus: before?.status,
-      toStatus: task.status,
-      assignedToId: task.assignedToId,
+      fromStatus: before.status,
+      toStatus: parsed.data.status ?? before.status,
+      assignedToId: parsed.data.assignedToId ?? before.assigned_to_id,
     },
   });
   res.json(task);
@@ -179,19 +237,31 @@ tasksRouter.patch("/:id", async (req, res) => {
 tasksRouter.delete("/:id", async (req, res) => {
   const companyId = getCompanyId(req);
   const member = (req as any).member as { id: string };
-  const before = await prisma.task.findFirst({ where: { id: req.params.id, companyId } });
+
+  const { data: before } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
   if (!before) {
     res.status(404).json({ error: "Tarea no encontrada" });
     return;
   }
-  await prisma.task.delete({ where: { id: before.id } });
+
+  const { error } = await supabase.from("tasks").delete().eq("id", before.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
   void logActivity({
     companyId,
     actorId: member?.id,
     action: "task.delete",
     entityType: "task",
     entityId: before.id,
-    conversationId: before.conversationId,
+    conversationId: before.conversation_id,
     taskId: before.id,
     meta: { fromStatus: before.status },
   });

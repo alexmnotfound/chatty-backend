@@ -1,8 +1,19 @@
 import { Request } from "express";
-import type { TeamMember } from "@prisma/client";
+
+export type MemberShape = {
+  id: string;
+  company_id: string;
+  companyId: string;
+  user_id: string;
+  userId: string;
+  role: string;
+  email: string;
+  name: string;
+  enabled: boolean;
+};
 
 export type AuthenticatedRequest = Request & {
-  member: TeamMember;
+  member: MemberShape;
 };
 
 /**

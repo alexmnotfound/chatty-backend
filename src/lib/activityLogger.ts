@@ -1,4 +1,4 @@
-import { prisma } from "./prisma.js";
+import { supabase } from "./supabase.js";
 
 export type ActivityLogActionInput = {
   companyId?: string | null;
@@ -13,18 +13,17 @@ export type ActivityLogActionInput = {
 
 export async function logActivity(input: ActivityLogActionInput) {
   try {
-    await prisma.activityLog.create({
-      data: {
-        companyId: input.companyId ?? null,
-        actorId: input.actorId ?? null,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId ?? null,
-        conversationId: input.conversationId ?? null,
-        taskId: input.taskId ?? null,
-        meta: input.meta !== undefined ? (input.meta as any) : undefined,
-      },
+    const { error } = await supabase.from("activity_logs").insert({
+      company_id: input.companyId ?? null,
+      actor_id: input.actorId ?? null,
+      action: input.action,
+      entity_type: input.entityType,
+      entity_id: input.entityId ?? null,
+      conversation_id: input.conversationId ?? null,
+      task_id: input.taskId ?? null,
+      meta: input.meta !== undefined ? input.meta : null,
     });
+    if (error) console.error("[activityLogger] failed", error);
   } catch (err) {
     console.error("[activityLogger] failed", err);
   }

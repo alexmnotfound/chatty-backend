@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import crypto from "node:crypto";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
 import { getAiReply, buildHistoryFromMessages } from "../services/ai.js";
 import { logActivity } from "../lib/activityLogger.js";
@@ -78,18 +78,20 @@ whatsappWebhookRouter.post("/", async (req, res) => {
   }
 
   // Look up company by phone_number_id
-  const config = await prisma.companyConfig.findFirst({
-    where: { whatsappPhoneNumberId: phoneNumberId },
-    include: { company: true },
-  });
-  if (!config || !config.company.enabled) {
+  const { data: config } = await supabase
+    .from("company_config")
+    .select("*, company:companies(*)")
+    .eq("whatsapp_phone_number_id", phoneNumberId)
+    .maybeSingle();
+
+  if (!config || !config.company?.enabled) {
     console.warn("[webhook] No company found for phone_number_id:", phoneNumberId);
     res.sendStatus(200);
     return;
   }
 
   // Verify HMAC with company's app secret (fall back to global env var)
-  const appSecret = config.whatsappAppSecret || process.env.WHATSAPP_APP_SECRET;
+  const appSecret = config.whatsapp_app_secret || process.env.WHATSAPP_APP_SECRET;
   if (!appSecret || !rawBody || typeof sigHeader !== "string") {
     res.sendStatus(403);
     return;
@@ -99,7 +101,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
     return;
   }
 
-  const companyId = config.companyId;
+  const companyId = config.company_id;
 
   // Respond 200 immediately
   res.sendStatus(200);
@@ -119,64 +121,92 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const contactInfo = value.contacts?.find((c) => c.wa_id === from);
         const name = contactInfo?.profile?.name ?? null;
 
-        const contact = await prisma.contact.upsert({
-          where: { companyId_waId: { companyId, waId: from } },
-          create: { companyId, waId: from, name },
-          update: name ? { name } : {},
-        });
+        // Upsert contact by company_id + wa_id
+        const { data: contact } = await supabase
+          .from("contacts")
+          .upsert(
+            { company_id: companyId, wa_id: from, name },
+            { onConflict: "company_id,wa_id" }
+          )
+          .select()
+          .single();
+        if (!contact) continue;
 
-        let conversation = await prisma.conversation.findUnique({
-          where: { companyId_contactId: { companyId, contactId: contact.id } },
-          include: { aiRole: true, messages: { orderBy: { createdAt: "asc" } } },
-        });
+        // Get or create conversation (unique per company+contact)
+        let { data: conversation } = await supabase
+          .from("conversations")
+          .select("*, aiRole:ai_roles(*), messages(*)")
+          .eq("company_id", companyId)
+          .eq("contact_id", contact.id)
+          .maybeSingle();
 
         if (!conversation) {
-          const defaultRole = await prisma.aiRole.findFirst({
-            where: { companyId },
-            orderBy: { name: "asc" },
-          });
-          conversation = await prisma.conversation.create({
-            data: {
-              companyId,
-              contactId: contact.id,
+          // Find default AI role
+          const { data: defaultRole } = await supabase
+            .from("ai_roles")
+            .select("id")
+            .eq("company_id", companyId)
+            .order("name", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          const { data: newConv } = await supabase
+            .from("conversations")
+            .insert({
+              company_id: companyId,
+              contact_id: contact.id,
               status: "ai",
-              aiRoleId: defaultRole?.id ?? null,
-            },
-            include: { aiRole: true, messages: true },
-          });
-          void logActivity({
-            companyId,
-            action: "conversation.created",
-            entityType: "conversation",
-            entityId: conversation.id,
-            conversationId: conversation.id,
-            meta: { status: conversation.status, aiRoleId: conversation.aiRoleId },
-          });
+              ai_role_id: defaultRole?.id ?? null,
+            })
+            .select("*, aiRole:ai_roles(*), messages(*)")
+            .single();
+          conversation = newConv;
+
+          if (conversation) {
+            void logActivity({
+              companyId,
+              action: "conversation.created",
+              entityType: "conversation",
+              entityId: conversation.id,
+              conversationId: conversation.id,
+              meta: { status: conversation.status, aiRoleId: conversation.ai_role_id },
+            });
+          }
         }
         if (!conversation) continue;
 
-        const incomingMessage = await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
+        // Store inbound message
+        const { data: incomingMessage } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: conversation.id,
             direction: "in",
-            waMessageId: msg.id,
+            wa_message_id: msg.id,
             body: msg.text.body,
-            fromAi: false,
-          },
-        });
-        void logActivity({
-          companyId,
-          action: "message.incoming",
-          entityType: "message",
-          entityId: incomingMessage.id,
-          conversationId: conversation.id,
-          meta: { textLength: incomingMessage.body.length },
-        });
+            from_ai: false,
+          })
+          .select()
+          .single();
 
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { updatedAt: new Date(), unreadCount: { increment: 1 } },
-        });
+        if (incomingMessage) {
+          void logActivity({
+            companyId,
+            action: "message.incoming",
+            entityType: "message",
+            entityId: incomingMessage.id,
+            conversationId: conversation.id,
+            meta: { textLength: incomingMessage.body.length },
+          });
+        }
+
+        // Increment unread count
+        await supabase
+          .from("conversations")
+          .update({
+            updated_at: new Date().toISOString(),
+            unread_count: (conversation.unread_count ?? 0) + 1,
+          })
+          .eq("id", conversation.id);
 
         if (conversation.status === "human") continue;
 
@@ -188,34 +218,40 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           continue;
         }
 
-        const updatedConv = await prisma.conversation.findUnique({
-          where: { id: conversation.id },
-          include: { messages: { orderBy: { createdAt: "asc" }, take: 30 } },
-        });
-        if (!updatedConv) continue;
+        // Re-fetch messages for history (last 30)
+        const { data: msgRows } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversation.id)
+          .order("created_at", { ascending: true })
+          .limit(30);
 
-        const history = buildHistoryFromMessages(updatedConv.messages);
-        const reply = await getAiReply(role.systemPrompt, history, companyId);
+        const history = buildHistoryFromMessages(msgRows ?? []);
+        const reply = await getAiReply(role.system_prompt, history, companyId);
 
         if (credentials) {
           const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, reply);
           if (sent) {
-            const outMessage = await prisma.message.create({
-              data: {
-                conversationId: conversation.id,
+            const { data: outMessage } = await supabase
+              .from("messages")
+              .insert({
+                conversation_id: conversation.id,
                 direction: "out",
                 body: reply,
-                fromAi: true,
-              },
-            });
-            void logActivity({
-              companyId,
-              action: "message.ai_reply",
-              entityType: "message",
-              entityId: outMessage.id,
-              conversationId: conversation.id,
-              meta: { textLength: outMessage.body.length, ai: true },
-            });
+                from_ai: true,
+              })
+              .select()
+              .single();
+            if (outMessage) {
+              void logActivity({
+                companyId,
+                action: "message.ai_reply",
+                entityType: "message",
+                entityId: outMessage.id,
+                conversationId: conversation.id,
+                meta: { textLength: outMessage.body.length, ai: true },
+              });
+            }
           }
         }
       }

@@ -1,6 +1,10 @@
-import { PrismaClient } from "@prisma/client";
+import { createClient } from "@supabase/supabase-js";
 
-const prisma = new PrismaClient();
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
 
 const DEMO_CONTACTS = [
   {
@@ -19,7 +23,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "si porfavor, y tienen prueba gratis?", fromAi: false, minutesAgo: 10 },
           { direction: "in", body: "también quiero saber si puedo cancelar cuando quiera", fromAi: false, minutesAgo: 8 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -41,12 +45,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "carlos.rodriguez@empresa.com, gracias", fromAi: false, minutesAgo: 5 },
         ],
         tasks: [
-          {
-            title: "Enviar cotización X300 × 50u a Carlos",
-            description: "Cotización para empresa. 50 unidades modelo X300. Entrega requerida antes del 15. Mail: carlos.rodriguez@empresa.com",
-            status: "pending",
-            daysFromNow: 1,
-          },
+          { title: "Enviar cotización X300 × 50u a Carlos", description: "Cotización para empresa. 50 unidades modelo X300. Entrega requerida antes del 15. Mail: carlos.rodriguez@empresa.com", status: "pending", daysFromNow: 1 },
         ],
       },
     ],
@@ -71,12 +70,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "?", fromAi: false, minutesAgo: 15 },
         ],
         tasks: [
-          {
-            title: "Resolver reclamo envío Laura Martínez - pedido #4521",
-            description: "Cliente esperando confirmación de reenvío urgente. Dirección: Av. Corrientes 1234, piso 3, CABA. Contactar courier y confirmar fecha.",
-            status: "pending",
-            daysFromNow: 0,
-          },
+          { title: "Resolver reclamo envío Laura Martínez - pedido #4521", description: "Cliente esperando confirmación de reenvío urgente. Dirección: Av. Corrientes 1234, piso 3, CABA. Contactar courier y confirmar fecha.", status: "pending", daysFromNow: 0 },
         ],
       },
     ],
@@ -95,7 +89,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "no gracias, era eso!", fromAi: false, minutesAgo: 1435 },
           { direction: "out", body: "¡Perfecto, hasta luego! 👋", fromAi: true, minutesAgo: 1434 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -114,7 +108,7 @@ const DEMO_CONTACTS = [
           { direction: "out", body: "¡Perfecto para eso somos! Con nuestro agente Recepcionista podés responder automáticamente consultas frecuentes, y cuando algo necesita atención humana lo derivamos a tu equipo. ¿Cuántos mensajes por día recibís aproximadamente?", fromAi: true, minutesAgo: 79 },
           { direction: "in", body: "como 40-50 por día entre semana, fines de semana más", fromAi: false, minutesAgo: 20 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -132,7 +126,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "si está ok, ya lo veo en la web, gracias", fromAi: false, minutesAgo: 2870 },
           { direction: "out", body: "¡Perfecto! Cualquier duda que tengas, estamos acá. ¡Hasta luego! 😊", fromAi: true, minutesAgo: 2869 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -154,12 +148,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "Perfecto, gracias. Quedamos así.", fromAi: false, minutesAgo: 270 },
         ],
         tasks: [
-          {
-            title: "Agendar llamada técnica con Sofía Pérez - integración CRM",
-            description: "Cliente interesada en API para sincronizar CRM propio. Coordinar demo técnica con su equipo.",
-            status: "pending",
-            daysFromNow: 3,
-          },
+          { title: "Agendar llamada técnica con Sofía Pérez - integración CRM", description: "Cliente interesada en API para sincronizar CRM propio. Coordinar demo técnica con su equipo.", status: "pending", daysFromNow: 3 },
         ],
       },
     ],
@@ -180,7 +169,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "manda el link", fromAi: false, minutesAgo: 700 },
           { direction: "out", body: "Acá te dejo el link al demo: chatty.app/demo — Cualquier consulta que tengas después del video, estamos acá. 😊", fromAi: true, minutesAgo: 699 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -199,7 +188,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "también te mando el del mes pasado que no lo habían procesado", fromAi: false, minutesAgo: 5 },
           { direction: "in", body: "[PDF:pago-marzo-valeria.pdf]", fromAi: false, minutesAgo: 2 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -217,7 +206,7 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "[IMAGEN:transferencia-miercoles.jpg]", fromAi: false, minutesAgo: 50 },
           { direction: "in", body: "[PDF:factura-abril.pdf]", fromAi: false, minutesAgo: 10 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
@@ -234,88 +223,104 @@ const DEMO_CONTACTS = [
           { direction: "in", body: "[PDF:pago-marzo-2026.pdf]", fromAi: false, minutesAgo: 4318 },
           { direction: "in", body: "perfecto gracias!", fromAi: false, minutesAgo: 4310 },
         ],
-        tasks: [],
+        tasks: [] as any[],
       },
     ],
   },
 ];
 
 async function main() {
-  const company = await prisma.company.findUnique({ where: { slug: "demo" } });
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("slug", "demo")
+    .maybeSingle();
   if (!company) {
     console.error("Empresa demo no encontrada. Ejecutá primero: npm run db:seed");
     process.exit(1);
   }
 
-  const admin = await prisma.teamMember.findUnique({ where: { email: "admin@demo.com" } });
+  const { data: admin } = await supabase
+    .from("company_members")
+    .select("*")
+    .eq("company_id", company.id)
+    .eq("email", "admin@demo.com")
+    .maybeSingle();
   if (!admin) {
     console.error("Admin demo no encontrado. Ejecutá primero: npm run db:seed");
     process.exit(1);
   }
 
-  const aiRoles = await prisma.aiRole.findMany({ where: { companyId: company.id } });
-  const roleByKey = Object.fromEntries(aiRoles.map((r) => [r.key, r]));
+  const { data: aiRoles } = await supabase
+    .from("ai_roles")
+    .select("*")
+    .eq("company_id", company.id);
+  const roleByKey = Object.fromEntries((aiRoles ?? []).map((r: any) => [r.key, r]));
 
   const now = new Date();
 
   for (const contactData of DEMO_CONTACTS) {
-    const existing = await prisma.contact.findUnique({
-      where: { companyId_waId: { companyId: company.id, waId: contactData.waId } },
-    });
+    // Check if contact already exists
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("company_id", company.id)
+      .eq("wa_id", contactData.waId)
+      .maybeSingle();
 
     if (existing) {
       console.log(`Contacto ya existe: ${contactData.name} (${contactData.waId})`);
       continue;
     }
 
-    const contact = await prisma.contact.create({
-      data: {
-        companyId: company.id,
-        waId: contactData.waId,
-        name: contactData.name,
-      },
-    });
+    const { data: contact } = await supabase
+      .from("contacts")
+      .insert({ company_id: company.id, wa_id: contactData.waId, name: contactData.name })
+      .select()
+      .single();
+    if (!contact) continue;
 
     for (const convData of contactData.conversations) {
       const aiRole = convData.aiRoleKey ? roleByKey[convData.aiRoleKey] : null;
-      const conversation = await prisma.conversation.create({
-        data: {
-          companyId: company.id,
-          contactId: contact.id,
+      const lastMsgMinutesAgo = convData.messages.at(-1)?.minutesAgo ?? 0;
+
+      const { data: conversation } = await supabase
+        .from("conversations")
+        .insert({
+          company_id: company.id,
+          contact_id: contact.id,
           status: convData.status,
-          unreadCount: convData.unreadCount,
-          aiRoleId: aiRole?.id ?? null,
-          assignedToId: convData.assignToAdmin ? admin.id : null,
-          updatedAt: new Date(now.getTime() - (convData.messages.at(-1)?.minutesAgo ?? 0) * 60 * 1000),
-        },
-      });
+          unread_count: convData.unreadCount,
+          ai_role_id: aiRole?.id ?? null,
+          assigned_to_id: (convData as any).assignToAdmin ? admin.id : null,
+          updated_at: new Date(now.getTime() - lastMsgMinutesAgo * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+      if (!conversation) continue;
 
       for (const msg of convData.messages) {
-        const createdAt = new Date(now.getTime() - msg.minutesAgo * 60 * 1000);
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            direction: msg.direction,
-            body: msg.body,
-            fromAi: msg.fromAi,
-            createdAt,
-          },
+        const createdAt = new Date(now.getTime() - msg.minutesAgo * 60 * 1000).toISOString();
+        await supabase.from("messages").insert({
+          conversation_id: conversation.id,
+          direction: msg.direction,
+          body: msg.body,
+          from_ai: msg.fromAi,
+          created_at: createdAt,
         });
       }
 
       for (const taskData of convData.tasks) {
-        const dueAt = new Date(now.getTime() + taskData.daysFromNow * 24 * 60 * 60 * 1000);
-        await prisma.task.create({
-          data: {
-            companyId: company.id,
-            conversationId: conversation.id,
-            title: taskData.title,
-            description: taskData.description,
-            status: taskData.status,
-            assignedToId: admin.id,
-            createdById: admin.id,
-            dueAt,
-          },
+        const dueAt = new Date(now.getTime() + taskData.daysFromNow * 24 * 60 * 60 * 1000).toISOString();
+        await supabase.from("tasks").insert({
+          company_id: company.id,
+          conversation_id: conversation.id,
+          title: taskData.title,
+          description: taskData.description,
+          status: taskData.status,
+          assigned_to_id: admin.id,
+          created_by_id: admin.id,
+          due_at: dueAt,
         });
       }
     }
@@ -325,13 +330,15 @@ async function main() {
 
   console.log("\nDato de acceso demo:");
   console.log("  email:    admin@demo.com");
-  console.log("  password: admin123");
+  console.log("  password: test1234");
 }
 
 main()
-  .then(() => prisma.$disconnect())
+  .then(() => {
+    console.log("Seed demo completado.");
+    process.exit(0);
+  })
   .catch((e) => {
     console.error(e);
-    prisma.$disconnect();
     process.exit(1);
   });

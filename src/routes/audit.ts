@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roles.js";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { getCompanyId } from "../middleware/tenant.js";
 
 export const auditRouter = Router();
@@ -17,48 +17,52 @@ auditRouter.get("/", async (req, res) => {
   const limit = Math.max(1, Math.min(200, asInt(req.query.limit, 50)));
   const offset = Math.max(0, asInt(req.query.offset, 0));
 
-  const from = typeof req.query.from === "string" ? new Date(req.query.from) : null;
-  const to = typeof req.query.to === "string" ? new Date(req.query.to) : null;
-
+  const from = typeof req.query.from === "string" ? req.query.from : null;
+  const to = typeof req.query.to === "string" ? req.query.to : null;
   const actorId = typeof req.query.actorId === "string" ? req.query.actorId : null;
   const entityType = typeof req.query.entityType === "string" ? req.query.entityType : null;
   const conversationId = typeof req.query.conversationId === "string" ? req.query.conversationId : null;
   const taskId = typeof req.query.taskId === "string" ? req.query.taskId : null;
   const action = typeof req.query.action === "string" ? req.query.action : null;
 
-  const where: any = { companyId };
-  if (from && !Number.isNaN(from.valueOf())) where.createdAt = { ...(where.createdAt ?? {}), gte: from };
-  if (to && !Number.isNaN(to.valueOf())) where.createdAt = { ...(where.createdAt ?? {}), lte: to };
-  if (actorId) where.actorId = actorId;
-  if (entityType) where.entityType = entityType;
-  if (conversationId) where.conversationId = conversationId;
-  if (taskId) where.taskId = taskId;
-  if (action) where.action = action;
+  // Build query for logs
+  let logsQuery = supabase
+    .from("activity_logs")
+    .select(`
+      *,
+      actor:company_members!actor_id(id, name, email, role)
+    `, { count: "exact" })
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
-  const [logs, total] = await Promise.all([
-    prisma.activityLog.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      skip: offset,
-      include: { actor: { select: { id: true, name: true, email: true, role: true } } },
-    }),
-    prisma.activityLog.count({ where }),
-  ]);
+  if (from && !Number.isNaN(new Date(from).valueOf())) logsQuery = logsQuery.gte("created_at", from);
+  if (to && !Number.isNaN(new Date(to).valueOf())) logsQuery = logsQuery.lte("created_at", to);
+  if (actorId) logsQuery = logsQuery.eq("actor_id", actorId);
+  if (entityType) logsQuery = logsQuery.eq("entity_type", entityType);
+  if (conversationId) logsQuery = logsQuery.eq("conversation_id", conversationId);
+  if (taskId) logsQuery = logsQuery.eq("task_id", taskId);
+  if (action) logsQuery = logsQuery.eq("action", action);
+
+  const { data: logs, count, error } = await logsQuery;
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
 
   res.json({
-    total,
-    logs: logs.map((l) => ({
+    total: count ?? 0,
+    logs: (logs ?? []).map((l: any) => ({
       id: l.id,
-      actorId: l.actorId,
+      actorId: l.actor_id,
       actor: l.actor,
-      entityType: l.entityType,
+      entityType: l.entity_type,
       action: l.action,
-      entityId: l.entityId,
-      conversationId: l.conversationId,
-      taskId: l.taskId,
+      entityId: l.entity_id,
+      conversationId: l.conversation_id,
+      taskId: l.task_id,
       meta: l.meta,
-      createdAt: l.createdAt.toISOString(),
+      createdAt: l.created_at,
     })),
   });
 });

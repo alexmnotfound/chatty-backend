@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const JWT_SECRET: string = process.env.JWT_SECRET ?? "";
@@ -26,7 +26,14 @@ authRouter.post("/login", async (req, res) => {
     res.status(400).json({ error: "Email y contraseña requeridos" });
     return;
   }
-  const member = await prisma.teamMember.findUnique({ where: { email: parsed.data.email } });
+
+  // Look up member by email in company_members
+  const { data: member } = await supabase
+    .from("company_members")
+    .select("*")
+    .eq("email", parsed.data.email)
+    .maybeSingle();
+
   // Generic error — do not reveal whether the email exists
   if (!member || !(await bcrypt.compare(parsed.data.password, member.password))) {
     res.status(401).json({ error: "Credenciales incorrectas" });
@@ -36,13 +43,20 @@ authRouter.post("/login", async (req, res) => {
     res.status(403).json({ error: "Tu cuenta está deshabilitada. Consultá a un administrador." });
     return;
   }
-  const company = await prisma.company.findUnique({ where: { id: member.companyId } });
+
+  // Check company is active
+  const { data: company } = await supabase
+    .from("companies")
+    .select("enabled")
+    .eq("id", member.company_id)
+    .maybeSingle();
   if (!company?.enabled) {
     res.status(403).json({ error: "La empresa está deshabilitada. Consultá al administrador." });
     return;
   }
+
   const token = jwt.sign(
-    { memberId: member.id, companyId: member.companyId, scope: "member" },
+    { memberId: member.id, companyId: member.company_id, scope: "member" },
     JWT_SECRET,
     { expiresIn: "7d", algorithm: "HS256" }
   );
@@ -54,7 +68,7 @@ authRouter.post("/login", async (req, res) => {
       name: member.name,
       role: member.role,
       enabled: member.enabled,
-      companyId: member.companyId,
+      companyId: member.company_id,
     },
   });
 });

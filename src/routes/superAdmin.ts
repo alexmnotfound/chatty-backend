@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
-import { prisma } from "../lib/prisma.js";
+import { supabase } from "../lib/supabase.js";
 import { requireSuperAuth } from "../middleware/superAuth.js";
 
 const JWT_SECRET: string = process.env.JWT_SECRET ?? "";
@@ -17,7 +17,11 @@ superAdminRouter.post("/login", async (req, res) => {
     res.status(400).json({ error: "Email y contraseña requeridos" });
     return;
   }
-  const admin = await prisma.superAdmin.findUnique({ where: { email: parsed.data.email } });
+  const { data: admin } = await supabase
+    .from("super_admins")
+    .select("*")
+    .eq("email", parsed.data.email)
+    .maybeSingle();
   if (!admin || !(await bcrypt.compare(parsed.data.password, admin.password))) {
     res.status(401).json({ error: "Credenciales incorrectas" });
     return;

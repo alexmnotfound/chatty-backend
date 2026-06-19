@@ -1,5 +1,3 @@
-import type { Bot, BotExample } from '@prisma/client';
-
 const GENDER_LABEL: Record<string, string> = {
   masculine: 'masculino',
   feminine: 'femenino',
@@ -12,12 +10,18 @@ const TONE_LABEL: Record<string, string> = {
   informal: 'informal',
 };
 
-type BotWithExamples = Bot & { examples: BotExample[] };
+type BotLike = {
+  system_prompt?: string;
+  systemPrompt?: string;
+  gender?: string | null;
+  tone?: string | null;
+  examples?: Array<{ user_message?: string; userMessage?: string; bot_response?: string; botResponse?: string; order: number }>;
+};
 
-export function compileSystemPrompt(bot: BotWithExamples): string {
+export function compileSystemPrompt(bot: BotLike): string {
   const parts: string[] = [];
 
-  parts.push(bot.systemPrompt);
+  parts.push(bot.system_prompt ?? bot.systemPrompt ?? '');
 
   const gender = bot.gender ? GENDER_LABEL[bot.gender] ?? bot.gender : null;
   const tone = bot.tone ? TONE_LABEL[bot.tone] ?? bot.tone : null;
@@ -26,12 +30,13 @@ export function compileSystemPrompt(bot: BotWithExamples): string {
     parts.push(`\nPersonalidad: ${traits}`);
   }
 
-  const sorted = [...bot.examples].sort((a, b) => a.order - b.order);
+  const examples = bot.examples ?? [];
+  const sorted = [...examples].sort((a, b) => a.order - b.order);
   if (sorted.length > 0) {
     parts.push('\nEjemplos de conversación:');
     for (const ex of sorted) {
-      parts.push(`Usuario: "${ex.userMessage}"`);
-      parts.push(`Vos: "${ex.botResponse}"`);
+      parts.push(`Usuario: "${ex.user_message ?? ex.userMessage}"`);
+      parts.push(`Vos: "${ex.bot_response ?? ex.botResponse}"`);
     }
   }
 

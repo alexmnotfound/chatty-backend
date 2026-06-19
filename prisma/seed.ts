@@ -1,121 +1,140 @@
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import "dotenv/config";
+import { createClient } from "@supabase/supabase-js";
+import bcrypt from "bcryptjs"; // used only for super_admins password hash
 
-const prisma = new PrismaClient();
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
+
+const PASSWORD = "test1234";
+
+async function upsertAuthUser(email: string, name: string): Promise<string> {
+  const { data: existing } = await supabase
+    .from("company_members")
+    .select("user_id")
+    .eq("email", email)
+    .maybeSingle();
+  if (existing) {
+    console.log(`– Auth user ya existe: ${email}`);
+    return existing.user_id;
+  }
+
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password: PASSWORD,
+    email_confirm: true,
+    user_metadata: { name },
+  });
+  if (error) throw error;
+  console.log(`✓ Auth user creado: ${email}`);
+  return data.user.id;
+}
 
 async function main() {
-  // 1. Seed super admin
-  const superAdminEmail = "super@chatty.com";
-  const existingSuperAdmin = await prisma.superAdmin.findUnique({ where: { email: superAdminEmail } });
-  if (!existingSuperAdmin) {
-    const hash = await bcrypt.hash("superadmin123", 10);
-    await prisma.superAdmin.create({
-      data: {
-        email: superAdminEmail,
-        password: hash,
-        name: "Super Admin",
-      },
+  // 1. Super admin
+  const { data: existingSA } = await supabase
+    .from("super_admins")
+    .select("id")
+    .eq("email", "super@chatty.com")
+    .maybeSingle();
+  if (!existingSA) {
+    const hash = await bcrypt.hash(PASSWORD, 10);
+    const { error } = await supabase.from("super_admins").insert({
+      email: "super@chatty.com",
+      password: hash,
+      name: "Super Admin",
     });
-    console.log("Super admin creado:", superAdminEmail, "/ superadmin123");
+    if (error) throw error;
+    console.log("✓ Super admin: super@chatty.com");
   } else {
-    console.log("Super admin ya existe:", superAdminEmail);
+    console.log("– Super admin ya existe: super@chatty.com");
   }
 
-  // 2. Seed demo company
-  let company = await prisma.company.findUnique({ where: { slug: "demo" } });
+  // 2. Demo company
+  let { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("slug", "demo")
+    .maybeSingle();
   if (!company) {
-    company = await prisma.company.create({
-      data: {
-        name: "Demo Company",
-        slug: "demo",
-      },
-    });
-    console.log("Empresa demo creada:", company.id);
+    const { data: created, error } = await supabase
+      .from("companies")
+      .insert({ name: "Demo Company", slug: "demo", active: true })
+      .select()
+      .single();
+    if (error) throw error;
+    company = created;
+    console.log("✓ Empresa demo creada:", company!.id);
   } else {
-    console.log("Empresa demo ya existe:", company.id);
+    console.log("– Empresa demo ya existe:", company.id);
   }
 
-  // 3. Seed company config
-  await prisma.companyConfig.upsert({
-    where: { companyId: company.id },
-    create: { companyId: company.id },
-    update: {},
-  });
+  // Ensure company_config exists
+  const { data: existingCfg } = await supabase
+    .from("company_config")
+    .select("id")
+    .eq("company_id", company!.id)
+    .maybeSingle();
+  if (!existingCfg) {
+    await supabase.from("company_config").insert({ company_id: company!.id });
+  }
 
-  // 4. Seed company admin
-  const adminEmail = "admin@demo.com";
-  const existingAdmin = await prisma.teamMember.findUnique({ where: { email: adminEmail } });
+  // 3. Company admin
+  const adminId = await upsertAuthUser("admin@demo.com", "Admin Demo");
+  const { data: existingAdmin } = await supabase
+    .from("company_members")
+    .select("id")
+    .eq("company_id", company!.id)
+    .eq("user_id", adminId)
+    .maybeSingle();
   if (!existingAdmin) {
-    const hash = await bcrypt.hash("admin123", 10);
-    await prisma.teamMember.create({
-      data: {
-        companyId: company.id,
-        email: adminEmail,
-        password: hash,
-        name: "Admin Demo",
-        role: "admin",
-      },
+    await supabase.from("company_members").insert({
+      company_id: company!.id,
+      user_id: adminId,
+      email: "admin@demo.com",
+      name: "Admin Demo",
+      role: "admin",
     });
-    console.log("Admin de empresa creado:", adminEmail, "/ admin123");
+    console.log("✓ CompanyMember admin: admin@demo.com");
+  } else {
+    console.log("– CompanyMember admin ya existe");
   }
 
-  // 5. Seed AI roles for demo company
-  await prisma.aiRole.upsert({
-    where: { companyId_key: { companyId: company.id, key: "receptionist" } },
-    create: {
-      companyId: company.id,
-      key: "receptionist",
-      name: "Recepcionista",
-      systemPrompt: `Eres una recepcionista amable y profesional. Tu rol es:
-- Saludar y dar la bienvenida.
-- Responder consultas básicas sobre horarios, ubicación y contacto.
-- Tomar datos si alguien quiere dejar un mensaje o ser contactado.
-- Derivar a un humano cuando la consulta sea comercial, técnica o requiera un vendedor.
-Responde siempre en español, de forma breve y clara. Si no sabes algo, ofrece pasar con un humano.`,
-    },
-    update: {},
-  });
+  // 4. Company agent
+  const agentId = await upsertAuthUser("agent@demo.com", "Agent Demo");
+  const { data: existingAgent } = await supabase
+    .from("company_members")
+    .select("id")
+    .eq("company_id", company!.id)
+    .eq("user_id", agentId)
+    .maybeSingle();
+  if (!existingAgent) {
+    await supabase.from("company_members").insert({
+      company_id: company!.id,
+      user_id: agentId,
+      email: "agent@demo.com",
+      name: "Agent Demo",
+      role: "agent",
+    });
+    console.log("✓ CompanyMember agent: agent@demo.com");
+  } else {
+    console.log("– CompanyMember agent ya existe");
+  }
 
-  await prisma.aiRole.upsert({
-    where: { companyId_key: { companyId: company.id, key: "seller" } },
-    create: {
-      companyId: company.id,
-      key: "seller",
-      name: "Vendedor",
-      systemPrompt: `Eres un vendedor profesional y cercano. Tu rol es:
-- Preguntar qué necesita el cliente y recomendar productos o servicios.
-- Dar información de precios, promociones y formas de pago si la conoces.
-- Cerrar citas o pedidos cuando sea posible.
-- Derivar a un humano para temas de stock, cotizaciones complejas o quejas.
-Responde siempre en español, de forma breve y orientada a la venta. Si hace falta un humano, dilo claramente.`,
-    },
-    update: {},
-  });
-
-  await prisma.aiRole.upsert({
-    where: { companyId_key: { companyId: company.id, key: "extractor" } },
-    create: {
-      companyId: company.id,
-      key: "extractor",
-      name: "Extractor de Pagos",
-      systemPrompt: `Sos un asistente especializado en extraer datos de comprobantes de pago enviados por WhatsApp.
-Cuando el cliente envía una imagen o PDF de una transferencia bancaria, factura o recibo, tu rol es:
-- Confirmar que recibiste el comprobante.
-- Indicar que se está procesando la extracción de datos.
-- Informar qué información fue detectada (monto, fecha, remitente, banco).
-- Avisar si el documento no es legible o falta información clave.
-Respondé siempre en español, de forma clara y concisa. No inventes datos que no estén en el comprobante.`,
-    },
-    update: {},
-  });
-
-  console.log("Roles de IA creados para empresa demo");
+  console.log("\nCredenciales (todos con password: test1234):");
+  console.log("  super@chatty.com  — Super Admin");
+  console.log("  admin@demo.com    — Company Admin");
+  console.log("  agent@demo.com    — Company Agent");
 }
 
 main()
-  .then(() => prisma.$disconnect())
+  .then(() => {
+    console.log("Seed completado.");
+    process.exit(0);
+  })
   .catch((e) => {
     console.error(e);
-    prisma.$disconnect();
     process.exit(1);
   });
