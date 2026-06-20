@@ -17,7 +17,8 @@ superPluginsRouter.get("/", async (_req, res) => {
     const { data: counts } = await supabase
       .from("company_plugins")
       .select("plugin_id")
-      .in("plugin_id", (plugins ?? []).map((p: any) => p.id));
+      .in("plugin_id", (plugins ?? []).map((p: any) => p.id))
+      .limit(5000);
 
     const countMap: Record<string, number> = {};
     for (const row of counts ?? []) {

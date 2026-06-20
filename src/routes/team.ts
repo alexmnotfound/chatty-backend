@@ -79,6 +79,7 @@ teamRouter.post("/", requireRole("admin"), async (req, res) => {
     .select("id, name, email, role, enabled")
     .single();
   if (error) {
+    await supabase.auth.admin.deleteUser(authData.user.id);
     res.status(500).json({ error: "Error interno del servidor" });
     return;
   }
