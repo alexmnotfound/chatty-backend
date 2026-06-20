@@ -1,8 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { createPublicKey } from 'node:crypto';
 import { supabase } from '../lib/supabase.js';
 
 const MEMBER_CACHE_TTL_MS = 60_000;
+
+// Supabase now signs user JWTs with ES256 (asymmetric). Fetch the public key
+// from the JWKS endpoint and cache it for 1 hour.
+let jwksPublicKey: string | null = null;
+let jwksExpiry = 0;
+
+async function getJwksPublicKey(): Promise<string> {
+  if (jwksPublicKey && Date.now() < jwksExpiry) return jwksPublicKey;
+  const url = `${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`;
+  const res = await fetch(url);
+  const { keys } = await res.json() as { keys: object[] };
+  if (!keys?.length) throw new Error('No JWKS keys returned');
+  const pem = createPublicKey({ key: keys[0] as Parameters<typeof createPublicKey>[0], format: 'jwk' })
+    .export({ type: 'spki', format: 'pem' }) as string;
+  jwksPublicKey = pem;
+  jwksExpiry = Date.now() + 3_600_000;
+  return pem;
+}
 
 interface CachedMember {
   id: string;
@@ -31,8 +50,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   let sub: string;
   try {
-    const payload = jwt.verify(token, process.env.SUPABASE_JWT_SECRET!, {
-      algorithms: ['HS256'],
+    const publicKey = await getJwksPublicKey();
+    const payload = jwt.verify(token, publicKey, {
+      algorithms: ['ES256'],
     }) as { sub?: string };
     if (!payload.sub || typeof payload.sub !== 'string') {
       return res.status(401).json({ error: 'Token inválido' });
@@ -71,7 +91,6 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   authReq.userId = sub;
   authReq.companyId = member.company_id;
   authReq.role = member.role as 'admin' | 'agent';
-  // Attach full member for routes that need it
   (authReq as any).member = {
     id: member.id,
     company_id: member.company_id,
