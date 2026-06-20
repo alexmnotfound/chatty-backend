@@ -435,6 +435,9 @@ superCompaniesRouter.post("/:id/team", async (req, res) => {
     .select("id, email, name, role, enabled, created_at")
     .single();
   if (memberError || !member) {
+    if (password) {
+      await supabase.auth.admin.deleteUser(userId);
+    }
     res.status(500).json({ error: "Error interno del servidor" });
     return;
   }
@@ -597,7 +600,12 @@ superCompaniesRouter.patch("/:id/billing", async (req, res) => {
   const { data, error } = await supabase
     .from("companies").update(parsed.data).eq("id", req.params.id)
     .select("id, plan, internal_notes").single();
-  if (error || !data) {
+  if (error) {
+    const isNotFound = (error as any).code === 'PGRST116';
+    res.status(isNotFound ? 404 : 500).json({ error: isNotFound ? "Empresa no encontrada" : "Error interno del servidor" });
+    return;
+  }
+  if (!data) {
     res.status(404).json({ error: "Empresa no encontrada" });
     return;
   }

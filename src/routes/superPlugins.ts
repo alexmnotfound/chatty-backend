@@ -14,25 +14,21 @@ superPluginsRouter.get("/", async (_req, res) => {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
-    const result = await Promise.all(
-      (plugins ?? []).map(async (p: any) => {
-        const { count } = await supabase
-          .from("company_plugins")
-          .select("id", { count: "exact", head: true })
-          .eq("plugin_id", p.id);
-        return {
-          id: p.id,
-          name: p.name,
-          slug: p.slug,
-          description: p.description,
-          icon: p.icon,
-          price_usd: p.price_usd,
-          active: p.active,
-          createdAt: p.created_at,
-          companiesCount: count ?? 0,
-        };
-      })
-    );
+    const { data: counts } = await supabase
+      .from("company_plugins")
+      .select("plugin_id")
+      .in("plugin_id", (plugins ?? []).map((p: any) => p.id));
+
+    const countMap: Record<string, number> = {};
+    for (const row of counts ?? []) {
+      countMap[row.plugin_id] = (countMap[row.plugin_id] ?? 0) + 1;
+    }
+
+    const result = (plugins ?? []).map((p: any) => ({
+      id: p.id, name: p.name, slug: p.slug, description: p.description,
+      icon: p.icon, price_usd: p.price_usd, active: p.active,
+      createdAt: p.created_at, companiesCount: countMap[p.id] ?? 0,
+    }));
     res.json(result);
   } catch (error) {
     console.error("[super/plugins GET error]", error instanceof Error ? error.message : String(error));
@@ -110,11 +106,8 @@ superPluginsRouter.patch("/:id", async (req, res) => {
       .select()
       .single();
     if (error) {
-      res.status(500).json({ error: "Error interno del servidor" });
-      return;
-    }
-    if (!data) {
-      res.status(404).json({ error: "Plugin no encontrado" });
+      const isNotFound = (error as any).code === 'PGRST116';
+      res.status(isNotFound ? 404 : 500).json({ error: isNotFound ? "Plugin no encontrado" : "Error interno del servidor" });
       return;
     }
     res.json({ ...data, createdAt: data.created_at, companiesCount: 0 });

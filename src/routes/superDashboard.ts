@@ -26,7 +26,7 @@ superDashboardRouter.get("/", async (_req, res) => {
       supabase.from("messages").select("id", { count: "exact", head: true }).gte("created_at", todayIso),
       supabase.from("companies").select("id, name, slug, active, created_at").order("created_at", { ascending: false }).limit(5),
       supabase.from("conversations").select("id, created_at, contacts(name, wa_id), companies(name, slug, id)").order("created_at", { ascending: false }).limit(10),
-      supabase.from("company_plugins").select("plugin_id, plugins(name, icon)"),
+      supabase.from("company_plugins").select("plugin_id, plugins(name, icon)").limit(1000),
     ]);
 
     if (companiesActiveResult.error) throw companiesActiveResult.error;
