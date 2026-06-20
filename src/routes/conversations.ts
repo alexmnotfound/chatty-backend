@@ -17,9 +17,8 @@ async function fetchFullConversation(id: string) {
       *,
       contact:contacts(*),
       aiRole:ai_roles(*),
-      assignedTo:company_members!assigned_to_id(id, name, email),
       messages(* ),
-      tasks(*, assignedTo:company_members!assigned_to_id(id, name, email))
+      tasks(*)
     `)
     .eq("id", id)
     .single();
@@ -38,7 +37,6 @@ conversationsRouter.get("/", async (req, res) => {
       *,
       contact:contacts(*),
       aiRole:ai_roles(*),
-      assignedTo:company_members!assigned_to_id(id, name, email),
       messages(*)
     `)
     .eq("company_id", companyId)
@@ -65,9 +63,8 @@ conversationsRouter.get("/:id", async (req, res) => {
       *,
       contact:contacts(*),
       aiRole:ai_roles(*),
-      assignedTo:company_members!assigned_to_id(id, name, email),
       messages(*),
-      tasks(*, assignedTo:company_members!assigned_to_id(id, name, email))
+      tasks(*)
     `)
     .eq("id", req.params.id)
     .eq("company_id", companyId)
