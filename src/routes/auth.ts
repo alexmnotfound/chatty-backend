@@ -1,5 +1,4 @@
 import { Router, type Request } from "express";
-import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
@@ -27,15 +26,24 @@ authRouter.post("/login", async (req, res) => {
     return;
   }
 
-  // Look up member by email in company_members
+  // Authenticate via Supabase Auth
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    email: parsed.data.email,
+    password: parsed.data.password,
+  });
+  if (authError || !authData.user) {
+    res.status(401).json({ error: "Credenciales incorrectas" });
+    return;
+  }
+
+  // Look up member record by user_id
   const { data: member } = await supabase
     .from("company_members")
     .select("*")
-    .eq("email", parsed.data.email)
+    .eq("user_id", authData.user.id)
     .maybeSingle();
 
-  // Generic error — do not reveal whether the email exists
-  if (!member || !(await bcrypt.compare(parsed.data.password, member.password))) {
+  if (!member) {
     res.status(401).json({ error: "Credenciales incorrectas" });
     return;
   }
@@ -47,10 +55,10 @@ authRouter.post("/login", async (req, res) => {
   // Check company is active
   const { data: company } = await supabase
     .from("companies")
-    .select("enabled")
+    .select("active")
     .eq("id", member.company_id)
     .maybeSingle();
-  if (!company?.enabled) {
+  if (!company?.active) {
     res.status(403).json({ error: "La empresa está deshabilitada. Consultá al administrador." });
     return;
   }

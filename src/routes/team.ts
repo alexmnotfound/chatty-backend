@@ -1,5 +1,4 @@
 import { Router, type Request } from "express";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 import type { MemberRole } from "../lib/roles.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -50,15 +49,30 @@ teamRouter.post("/", requireRole("admin"), async (req, res) => {
     return;
   }
 
-  const hash = await bcrypt.hash(parsed.data.password, 10);
   const role: MemberRole = parsed.data.role === "admin" ? "admin" : "agent";
+
+  // Create auth user first
+  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    email: parsed.data.email,
+    password: parsed.data.password,
+    email_confirm: true,
+    user_metadata: { name: parsed.data.name },
+  });
+  if (authError) {
+    if (authError.code === "email_exists") {
+      res.status(400).json({ error: "Ya existe un usuario con ese email" });
+    } else {
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+    return;
+  }
 
   const { data: member, error } = await supabase
     .from("company_members")
     .insert({
       company_id: companyId,
+      user_id: authData.user.id,
       email: parsed.data.email,
-      password: hash,
       name: parsed.data.name,
       role,
     })

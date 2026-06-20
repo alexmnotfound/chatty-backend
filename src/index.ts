@@ -25,6 +25,7 @@ import webhookRouter from "./routes/webhook.js";
 import { settingsRouter } from "./routes/settings.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { auditRouter } from "./routes/audit.js";
+import { authRouter } from "./routes/auth.js";
 import { superAdminRouter } from "./routes/superAdmin.js";
 import { superCompaniesRouter } from "./routes/superCompanies.js";
 import { superUsersRouter } from "./routes/superUsers.js";
@@ -79,6 +80,7 @@ app.use("/webhook/whatsapp", whatsappWebhookRouter);
 app.use("/webhook", webhookRouter);
 
 app.use("/api/bots", botsRouter);
+app.use("/api/auth", authLimiter, authRouter);
 app.use("/api/super/auth", authLimiter, superAdminRouter);
 app.use("/api/super/companies", superCompaniesRouter);
 app.use("/api/super/users", superUsersRouter);
