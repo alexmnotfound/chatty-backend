@@ -7,8 +7,7 @@ const JWT_SECRET: string = process.env.JWT_SECRET ?? "";
 export type SuperJwtPayload = { superAdminId: string; scope: "super" };
 
 export async function requireSuperAuth(req: Request, res: Response, next: NextFunction) {
-  const auth = req.headers.authorization;
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+  const token = (req as any).cookies?.super_token ?? null;
   if (!token) {
     res.status(401).json({ error: "No autorizado" });
     return;

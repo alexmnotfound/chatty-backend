@@ -35,10 +35,18 @@ superAdminRouter.post("/login", async (req, res) => {
     JWT_SECRET,
     { expiresIn: "7d", algorithm: "HS256" }
   );
-  res.json({
-    token,
-    admin: { id: admin.id, email: admin.email, name: admin.name },
+  res.cookie("super_token", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
+  res.json({ admin: { id: admin.id, email: admin.email, name: admin.name } });
+});
+
+superAdminRouter.post("/logout", (_req, res) => {
+  res.clearCookie("super_token", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" });
+  res.status(204).end();
 });
 
 superAdminRouter.get("/me", requireSuperAuth, async (req, res) => {
