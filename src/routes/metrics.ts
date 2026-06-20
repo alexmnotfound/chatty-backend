@@ -18,26 +18,53 @@ metricsRouter.get("/dashboard", async (req, res) => {
   const sinceIso = since.toISOString();
 
   // Conversations stats
-  const { data: conversations } = await supabase
+  const { count: conversationsTotal } = await supabase
     .from("conversations")
-    .select("status, unread_count")
+    .select("id", { count: "exact", head: true })
     .eq("company_id", companyId);
 
-  const conversationsTotal = (conversations ?? []).length;
-  const conversationsAi = (conversations ?? []).filter((c: any) => c.status === "ai").length;
-  const conversationsHuman = (conversations ?? []).filter((c: any) => c.status === "human").length;
-  const unreadTotal = (conversations ?? []).reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0);
+  const { count: conversationsAi } = await supabase
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("status", "ai");
+
+  const { count: conversationsHuman } = await supabase
+    .from("conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("status", "human");
+
+  const { data: unreadData } = await supabase
+    .from("conversations")
+    .select("unread_count")
+    .eq("company_id", companyId)
+    .gt("unread_count", 0);
+  const unreadTotal = (unreadData ?? []).reduce((acc: number, c) => acc + (c.unread_count || 0), 0);
 
   // Tasks stats
-  const { data: tasks } = await supabase
+  const { count: tasksTotal } = await supabase
     .from("tasks")
-    .select("status, created_at, updated_at, due_at")
+    .select("id", { count: "exact", head: true })
     .eq("company_id", companyId);
 
-  const tasksTotal = (tasks ?? []).length;
-  const tasksPending = (tasks ?? []).filter((t: any) => t.status === "pending").length;
-  const tasksInProgress = (tasks ?? []).filter((t: any) => t.status === "in_progress").length;
-  const tasksDone = (tasks ?? []).filter((t: any) => t.status === "done").length;
+  const { count: tasksPending } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("status", "pending");
+
+  const { count: tasksInProgress } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("status", "in_progress");
+
+  const { count: tasksDone } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("status", "done");
 
   const { count: tasksCreatedInRange } = await supabase
     .from("tasks")
@@ -65,7 +92,8 @@ metricsRouter.get("/dashboard", async (req, res) => {
     .select("actor_id")
     .eq("company_id", companyId)
     .gte("created_at", sinceIso)
-    .not("actor_id", "is", null);
+    .not("actor_id", "is", null)
+    .limit(500);            // cap: we only need top-5 actors, 500 rows is more than enough
 
   const actorCounts = new Map<string, number>();
   for (const row of recentLogs ?? []) {
@@ -128,16 +156,16 @@ metricsRouter.get("/dashboard", async (req, res) => {
   res.json({
     range: { days, since: since.toISOString() },
     conversations: {
-      total: conversationsTotal,
-      ai: conversationsAi,
-      human: conversationsHuman,
+      total: conversationsTotal ?? 0,
+      ai: conversationsAi ?? 0,
+      human: conversationsHuman ?? 0,
       unreadTotal,
     },
     tasks: {
-      total: tasksTotal,
-      pending: tasksPending,
-      in_progress: tasksInProgress,
-      done: tasksDone,
+      total: tasksTotal ?? 0,
+      pending: tasksPending ?? 0,
+      in_progress: tasksInProgress ?? 0,
+      done: tasksDone ?? 0,
       createdInRange: tasksCreatedInRange ?? 0,
       doneInRange: tasksDoneInRange ?? 0,
     },
