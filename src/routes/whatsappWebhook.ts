@@ -84,7 +84,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
     .eq("whatsapp_phone_number_id", phoneNumberId)
     .maybeSingle();
 
-  if (!config || !config.company?.enabled) {
+  if (!config || !config.company?.active) {
     console.error(
       `[webhook] ⚠️  No company configured for phone_number_id="${phoneNumberId}". ` +
       `Go to Settings → WhatsApp and enter this Phone Number ID.`
