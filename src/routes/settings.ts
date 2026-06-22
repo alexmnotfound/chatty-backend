@@ -122,6 +122,7 @@ settingsRouter.post("/validate-ai-key", requireRole("admin"), async (req, res) =
     res.json({ valid: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
-    res.status(400).json({ error: `API key inválida: ${msg}` });
+    console.error("[validate-ai-key] provider:", provider, "error:", msg);
+    res.status(400).json({ error: "API key inválida. Verificá que sea correcta." });
   }
 });
