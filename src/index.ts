@@ -104,9 +104,6 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const PORT = process.env.PORT ?? 3000;
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
-  if (!process.env.WHATSAPP_VERIFY_TOKEN) {
-    console.warn("⚠️  WHATSAPP_VERIFY_TOKEN not set — webhook verification will fail. Set it in .env and in Meta → Webhooks.");
-  }
   if (!process.env.ENCRYPTION_KEY) {
     console.warn("⚠️  ENCRYPTION_KEY not set — saving WhatsApp/AI credentials will fail.");
   }
