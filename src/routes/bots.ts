@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js';
 import { encrypt } from '../lib/encryption.js';
 import { getAIReply } from '../services/ai-provider.js';
+import { BOT_TEMPLATES } from '../lib/bot-templates.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -72,6 +73,11 @@ router.post('/test-ai', async (req, res) => {
   } catch (err: unknown) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Error al probar la API key' });
   }
+});
+
+// GET /api/bots/templates — list available bot templates
+router.get('/templates', async (_req, res) => {
+  res.json(BOT_TEMPLATES);
 });
 
 // GET /api/bots/:id — single bot (no secrets returned, includes examples)
