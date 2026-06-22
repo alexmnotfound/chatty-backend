@@ -235,23 +235,28 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         if (conversation.status === "human") continue;
 
-        // Check if the bot for this phone number is active
-        const { data: botRecord } = await supabase
+        // Find active bot: prefer one linked to this phone number, fallback to any active bot
+        const { data: linkedBot } = await supabase
           .from("bots")
-          .select("is_active")
+          .select("id, name, system_prompt, is_active")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
+          .eq("is_active", true)
           .maybeSingle();
 
-        const botIsActive = botRecord?.is_active !== false; // default true if no bot record
+        const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
+          .from("bots")
+          .select("id, name, system_prompt, is_active")
+          .eq("company_id", companyId)
+          .eq("is_active", true)
+          .order("name", { ascending: true })
+          .limit(1)
+          .maybeSingle();
 
-        if (!botIsActive) continue;
+        const activeBot = linkedBot ?? fallbackBot;
 
-        const role = conversation.aiRole;
-        if (!role) {
-          if (credentials) {
-            await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, "Gracias por escribir. Un momento por favor, te atiende un humano.");
-          }
+        if (!activeBot) {
+          console.log(`[webhook] No active bot for company ${companyId} — skipping AI reply`);
           continue;
         }
 
@@ -264,7 +269,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .limit(30);
 
         const history = buildHistoryFromMessages(msgRows ?? []);
-        const reply = await getAiReply(role.system_prompt, history, companyId);
+        const reply = await getAiReply(activeBot.system_prompt, history, companyId);
 
         if (credentials) {
           const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, reply);
