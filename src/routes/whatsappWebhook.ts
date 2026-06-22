@@ -141,7 +141,10 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           )
           .select()
           .single();
-        if (!contact) continue;
+        if (!contact) {
+          console.error(`[webhook] Failed to upsert contact wa_id="${from}" — missing UNIQUE(company_id,wa_id) constraint or DB error`);
+          continue;
+        }
 
         // Get or create conversation (unique per company+contact)
         let { data: conversation } = await supabase
