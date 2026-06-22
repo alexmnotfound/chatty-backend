@@ -178,9 +178,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ id: bot.id });
   } catch (e) {
     console.error('[bots POST]', e);
-    const errDetail = e instanceof Error ? e.message : (e as { message?: string })?.message ?? JSON.stringify(e);
-    const msg = process.env.NODE_ENV !== 'production' ? errDetail : 'Error interno del servidor';
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
