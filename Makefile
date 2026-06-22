@@ -1,6 +1,6 @@
 .PHONY: install dev build start typecheck \
        db-up db-down db-push db-reset db-new db-seed db-seed-demo \
-       seed setup logs
+       seed setup logs tunnel
 
 # ── Dependencies ──────────────────────────────────────────
 install:
@@ -50,3 +50,10 @@ setup: install db-up db-push db-seed  ## Full setup from scratch
 
 logs:
 	docker compose logs -f db
+
+# ── Tunnel (ngrok) ────────────────────────────────────────
+tunnel:
+	@PORT=$${PORT:-3000}; \
+	echo "Exposing http://localhost:$$PORT via ngrok..."; \
+	echo "Paste the HTTPS URL + /webhook/whatsapp into Meta → Webhooks"; \
+	ngrok http $$PORT
