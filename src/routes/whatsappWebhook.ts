@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import crypto from "node:crypto";
+import crypto, { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
 import { getAiReply, buildHistoryFromMessages } from "../services/ai.js";
@@ -137,7 +137,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const { data: contact, error: contactError } = await supabase
           .from("contacts")
           .upsert(
-            { company_id: companyId, wa_id: from, name },
+            { id: randomUUID(), company_id: companyId, wa_id: from, name },
             { onConflict: "company_id,wa_id" }
           )
           .select()
