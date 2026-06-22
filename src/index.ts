@@ -64,6 +64,7 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === "development",
 });
 const webhookLimiter = rateLimit({
   windowMs: 60 * 1000,
