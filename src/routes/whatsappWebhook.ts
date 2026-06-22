@@ -210,6 +210,18 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         if (conversation.status === "human") continue;
 
+        // Check if the bot for this phone number is active
+        const { data: botRecord } = await supabase
+          .from("bots")
+          .select("is_active")
+          .eq("company_id", companyId)
+          .eq("whatsapp_phone_number_id", phoneNumberId)
+          .maybeSingle();
+
+        const botIsActive = botRecord?.is_active !== false; // default true if no bot record
+
+        if (!botIsActive) continue;
+
         const role = conversation.aiRole;
         if (!role) {
           if (credentials) {
