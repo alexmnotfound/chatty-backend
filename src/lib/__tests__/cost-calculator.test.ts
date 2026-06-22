@@ -36,3 +36,20 @@ describe('calculateCost', () => {
     expect(cost).toBeCloseTo(15.00, 5);
   });
 });
+
+describe('nuevos modelos', () => {
+  it('gpt-4.1 calcula costo correctamente', () => {
+    const cost = calculateCost('gpt-4.1', 1_000_000, 1_000_000);
+    expect(cost).toBeCloseTo(2.00 + 8.00);
+  });
+
+  it('gpt-4.1-mini calcula costo correctamente', () => {
+    const cost = calculateCost('gpt-4.1-mini', 1_000_000, 1_000_000);
+    expect(cost).toBeCloseTo(0.40 + 1.60);
+  });
+
+  it('claude-opus-4-8 calcula costo correctamente', () => {
+    const cost = calculateCost('claude-opus-4-8', 1_000_000, 1_000_000);
+    expect(cost).toBeCloseTo(15.00 + 75.00);
+  });
+});
