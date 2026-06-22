@@ -85,7 +85,10 @@ whatsappWebhookRouter.post("/", async (req, res) => {
     .maybeSingle();
 
   if (!config || !config.company?.enabled) {
-    console.warn("[webhook] No company found for phone_number_id:", phoneNumberId);
+    console.error(
+      `[webhook] ⚠️  No company configured for phone_number_id="${phoneNumberId}". ` +
+      `Go to Settings → WhatsApp and enter this Phone Number ID.`
+    );
     res.sendStatus(200);
     return;
   }
@@ -93,10 +96,18 @@ whatsappWebhookRouter.post("/", async (req, res) => {
   // Verify HMAC with company's app secret (fall back to global env var)
   const appSecret = config.whatsapp_app_secret || process.env.WHATSAPP_APP_SECRET;
   if (!appSecret || !rawBody || typeof sigHeader !== "string") {
+    console.error(
+      `[webhook] ⚠️  App Secret not configured for company "${config.company_id}". ` +
+      `Go to Settings → WhatsApp and enter the App Secret.`
+    );
     res.sendStatus(403);
     return;
   }
   if (!verifySignature(rawBody, sigHeader, appSecret)) {
+    console.error(
+      `[webhook] ⚠️  HMAC signature mismatch for company "${config.company_id}". ` +
+      `Check that the App Secret in Settings matches the one in Meta → Basic Settings.`
+    );
     res.sendStatus(403);
     return;
   }
