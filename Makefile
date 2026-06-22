@@ -53,7 +53,7 @@ logs:
 
 # ── Tunnel (ngrok) ────────────────────────────────────────
 tunnel:
-	@PORT=$${PORT:-3000}; \
+	@PORT=$${PORT:-8173}; \
 	echo "Exposing http://localhost:$$PORT via ngrok..."; \
 	echo "Paste the HTTPS URL + /webhook/whatsapp into Meta → Webhooks"; \
 	ngrok http $$PORT
