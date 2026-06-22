@@ -35,6 +35,7 @@ settingsRouter.get("/", async (req, res) => {
   try {
     const config = await ensureConfig(companyId);
     res.json({
+      whatsappPhoneNumber: config.whatsapp_phone_number ?? "",
       whatsappPhoneNumberId: config.whatsapp_phone_number_id ?? "",
       hasWhatsAppAccessToken: Boolean(config.whatsapp_access_token),
       hasWhatsAppAppSecret: Boolean(config.whatsapp_app_secret),
@@ -47,6 +48,7 @@ settingsRouter.get("/", async (req, res) => {
 });
 
 const patchSchema = z.object({
+  whatsappPhoneNumber: z.string().optional(),
   whatsappPhoneNumberId: z.string().min(1).optional(),
   whatsappAccessToken: z.string().min(1).optional(),
   whatsappAppSecret: z.string().min(1).optional(),
@@ -62,6 +64,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
     return;
   }
   const data: Record<string, string> = {};
+  if (parsed.data.whatsappPhoneNumber !== undefined) data.whatsapp_phone_number = parsed.data.whatsappPhoneNumber.trim();
   if (parsed.data.whatsappPhoneNumberId !== undefined) data.whatsapp_phone_number_id = parsed.data.whatsappPhoneNumberId.trim();
   if (parsed.data.whatsappAccessToken !== undefined) data.whatsapp_access_token = parsed.data.whatsappAccessToken.trim();
   if (parsed.data.whatsappAppSecret !== undefined) data.whatsapp_app_secret = parsed.data.whatsappAppSecret.trim();
@@ -79,6 +82,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
       .single();
     if (error) throw error;
     res.json({
+      whatsappPhoneNumber: updated.whatsapp_phone_number ?? "",
       whatsappPhoneNumberId: updated.whatsapp_phone_number_id ?? "",
       hasWhatsAppAccessToken: Boolean(updated.whatsapp_access_token),
       hasWhatsAppAppSecret: Boolean(updated.whatsapp_app_secret),
