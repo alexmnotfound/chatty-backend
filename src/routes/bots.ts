@@ -241,7 +241,7 @@ router.patch('/:id', async (req, res) => {
 
 // DELETE /api/bots/:id — admin only
 router.patch('/:id/set-default', async (req, res) => {
-  const { companyId } = req as AuthRequest;
+  const { companyId } = req as unknown as AuthRequest;
   try {
     // Unset current default, then set new one
     await supabase.from('bots').update({ is_default: false }).eq('company_id', companyId).eq('is_default', true);

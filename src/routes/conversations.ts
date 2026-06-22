@@ -345,8 +345,9 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     return;
   }
   const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, conv.contact.wa_id, parsed.data.text);
-  if (!sent) {
-    res.status(502).json({ error: "No se pudo enviar por WhatsApp" });
+  if (!sent.ok) {
+    const hint = sent.status === 401 ? " (token expirado — actualizalo en Configuración → WhatsApp)" : "";
+    res.status(502).json({ error: `No se pudo enviar por WhatsApp${hint}` });
     return;
   }
 

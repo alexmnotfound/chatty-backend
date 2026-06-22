@@ -277,8 +277,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         if (credentials) {
           console.log(`[webhook] sending to ${from} via phoneNumberId ${credentials.phoneNumberId}`);
           const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, reply);
-          console.log(`[webhook] sendWhatsAppText result: ${sent}`);
-          if (sent) {
+          console.log(`[webhook] sendWhatsAppText result: ${sent.ok}`);
+          if (sent.ok) {
             const { data: outMessage } = await supabase
               .from("messages")
               .insert({

@@ -56,10 +56,10 @@ export async function sendWhatsAppText(
   accessToken: string,
   to: string,
   text: string
-): Promise<boolean> {
+): Promise<{ ok: true } | { ok: false; status: number; metaCode: number | null; message: string }> {
   const normalized = to.replace(/\D/g, "");
   const firstTry = await sendToNumber(normalized, text, phoneNumberId, accessToken);
-  if (firstTry.ok) return true;
+  if (firstTry.ok) return { ok: true };
 
   let attemptedRecipients = [normalized];
   let lastError = firstTry.err;
@@ -71,17 +71,15 @@ export async function sendWhatsAppText(
     attemptedRecipients = attemptedRecipients.concat(fallbackCandidates);
     for (const candidate of fallbackCandidates) {
       const result = await sendToNumber(candidate, text, phoneNumberId, accessToken);
-      if (result.ok) return true;
+      if (result.ok) return { ok: true };
       lastError = result.err;
       lastStatus = result.status;
     }
   }
 
-  console.error("WhatsApp send error:", lastStatus, {
-    attemptedCount: attemptedRecipients.length,
-    err: lastError,
-  });
-  return false;
+  const metaCode = getMetaErrorCode(lastError);
+  console.error("WhatsApp send error:", lastStatus, { attemptedCount: attemptedRecipients.length, err: lastError });
+  return { ok: false, status: lastStatus, metaCode, message: lastError };
 }
 
 export async function getWhatsAppCredentials(companyId: string): Promise<WhatsAppCredentials | null> {
