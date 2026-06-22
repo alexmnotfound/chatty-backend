@@ -40,6 +40,7 @@ whatsappWebhookRouter.get("/", (req, res) => {
 });
 
 whatsappWebhookRouter.post("/", async (req, res) => {
+  console.log("[webhook] POST received, object:", (req.body as any)?.object);
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
   const sigHeader = req.headers["x-hub-signature-256"];
 
@@ -122,11 +123,14 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
+      console.log("[webhook] change.field:", change.field);
       if (change.field !== "messages") continue;
       const value = change.value;
+      console.log("[webhook] value.messages:", JSON.stringify(value?.messages?.map((m: any) => ({id: m.id, type: m.type}))));
       if (!value?.messages) continue;
 
       for (const msg of value.messages) {
+        console.log("[webhook] msg.type:", msg.type, "has text:", !!msg.text?.body);
         if (msg.type !== "text" || !msg.text?.body) continue;
 
         const from = msg.from;
@@ -137,7 +141,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const { data: contact, error: contactError } = await supabase
           .from("contacts")
           .upsert(
-            { id: randomUUID(), company_id: companyId, wa_id: from, name },
+            { company_id: companyId, wa_id: from, name },
             { onConflict: "company_id,wa_id" }
           )
           .select()
@@ -146,6 +150,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           console.error(`[webhook] Failed to upsert contact wa_id="${from}":`, contactError);
           continue;
         }
+        console.log("[webhook] contact ok, id:", contact.id);
 
         // Get or create conversation (unique per company+contact)
         let { data: conversation } = await supabase
@@ -165,7 +170,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .limit(1)
             .maybeSingle();
 
-          const { data: newConv } = await supabase
+          console.log("[webhook] creating conversation, defaultRole:", defaultRole?.id ?? null);
+          const { data: newConv, error: convError } = await supabase
             .from("conversations")
             .insert({
               company_id: companyId,
@@ -177,6 +183,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .select("*, aiRole:ai_roles(*), messages(*)")
             .single();
           conversation = newConv;
+          console.log("[webhook] conversation created:", conversation?.id, "error:", convError);
 
           if (conversation) {
             void logActivity({
