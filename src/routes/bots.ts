@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
   try {
     const { data: bots, error } = await supabase
       .from('bots')
-      .select('id, name, ai_provider, ai_model, gender, tone, active, is_active, template_type, created_at, whatsapp_phone_number_id')
+      .select('id, name, ai_provider, ai_model, gender, tone, active, is_active, is_default, template_type, created_at, whatsapp_phone_number_id')
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -240,6 +240,25 @@ router.patch('/:id', async (req, res) => {
 });
 
 // DELETE /api/bots/:id — admin only
+router.patch('/:id/set-default', async (req, res) => {
+  const { companyId } = req as AuthRequest;
+  try {
+    // Unset current default, then set new one
+    await supabase.from('bots').update({ is_default: false }).eq('company_id', companyId).eq('is_default', true);
+    const { data: bot, error } = await supabase
+      .from('bots')
+      .update({ is_default: true })
+      .eq('id', req.params.id)
+      .eq('company_id', companyId)
+      .select('id, name, is_default')
+      .single();
+    if (error || !bot) return res.status(404).json({ error: 'Bot no encontrado' });
+    res.json(bot);
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const { companyId } = req as AuthRequest;
   try {
