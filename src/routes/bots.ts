@@ -164,17 +164,18 @@ router.post('/', async (req, res) => {
     if (examples && examples.length > 0) {
       await supabase.from('bot_examples').insert(
         examples.map(ex => ({
-          ...ex,
           bot_id: bot.id,
           company_id: companyId,
           user_message: ex.userMessage,
           bot_response: ex.botResponse,
+          order: ex.order,
         }))
       );
     }
 
     res.status(201).json({ id: bot.id });
-  } catch {
+  } catch (e) {
+    console.error('[bots POST]', e);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
