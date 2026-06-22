@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
   try {
     const { data: bots, error } = await supabase
       .from('bots')
-      .select('id, name, ai_provider, ai_model, gender, tone, active, created_at, whatsapp_phone_number_id')
+      .select('id, name, ai_provider, ai_model, gender, tone, active, is_active, template_type, created_at, whatsapp_phone_number_id')
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -127,6 +127,8 @@ const BotSchema = z.object({
   gender: z.enum(['masculine', 'feminine', 'non_binary', 'neutral']).default('neutral'),
   tone: z.enum(['formal', 'informal']).default('informal'),
   examples: z.array(ExampleSchema).optional(),
+  templateType: z.enum(['recepcionista', 'comercial']).nullable().optional(),
+  isActive: z.boolean().optional(),
 });
 
 // POST /api/bots — create bot (active: false, pending super-admin activation)
@@ -149,6 +151,8 @@ router.post('/', async (req, res) => {
         system_prompt: rest.systemPrompt,
         gender: rest.gender,
         tone: rest.tone,
+        template_type: rest.templateType ?? null,
+        // is_active defaults to true in DB
         ...(whatsappAccessToken && { whatsapp_access_token_enc: encrypt(whatsappAccessToken) }),
         ...(whatsappAppSecret && { whatsapp_app_secret_enc: encrypt(whatsappAppSecret) }),
         ...(aiApiKey && { ai_api_key_enc: encrypt(aiApiKey) }),
@@ -200,6 +204,8 @@ router.patch('/:id', async (req, res) => {
     if (rest.systemPrompt !== undefined) updateData.system_prompt = rest.systemPrompt;
     if (rest.gender !== undefined) updateData.gender = rest.gender;
     if (rest.tone !== undefined) updateData.tone = rest.tone;
+    if (rest.templateType !== undefined) updateData.template_type = rest.templateType ?? null;
+    if (rest.isActive !== undefined) updateData.is_active = rest.isActive;
     if (whatsappAccessToken) updateData.whatsapp_access_token_enc = encrypt(whatsappAccessToken);
     if (whatsappAppSecret) updateData.whatsapp_app_secret_enc = encrypt(whatsappAppSecret);
     if (aiApiKey) updateData.ai_api_key_enc = encrypt(aiApiKey);
