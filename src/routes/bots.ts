@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase.js';
 import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js';
@@ -143,6 +144,7 @@ router.post('/', async (req, res) => {
     const { data: bot, error } = await supabase
       .from('bots')
       .insert({
+        id: randomUUID(),
         company_id: companyId,
         name: rest.name,
         whatsapp_phone_number_id: rest.whatsappPhoneNumberId,
