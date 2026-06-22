@@ -1,3 +1,6 @@
+import { supabase } from "../lib/supabase.js";
+import { decrypt } from "../lib/encryption.js";
+
 const BASE = "https://graph.facebook.com/v21.0";
 
 export type WhatsAppCredentials = {
@@ -81,9 +84,24 @@ export async function sendWhatsAppText(
   return false;
 }
 
-export async function getWhatsAppCredentials(_companyId: string): Promise<WhatsAppCredentials | null> {
+export async function getWhatsAppCredentials(companyId: string): Promise<WhatsAppCredentials | null> {
+  const { data: config } = await supabase
+    .from("company_config")
+    .select("whatsapp_access_token, whatsapp_phone_number_id")
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (config?.whatsapp_access_token && config?.whatsapp_phone_number_id) {
+    try {
+      return { token: decrypt(config.whatsapp_access_token), phoneNumberId: config.whatsapp_phone_number_id };
+    } catch {
+      console.error("[whatsapp] Failed to decrypt access token for company", companyId);
+    }
+  }
+
+  // Fallback to env vars
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  if (!token || !phoneNumberId) return null;
-  return { token, phoneNumberId };
+  if (token && phoneNumberId) return { token, phoneNumberId };
+  return null;
 }
