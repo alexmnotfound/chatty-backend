@@ -114,9 +114,10 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
   const companyId = config.company_id;
 
-  // Respond 200 immediately
+  // Respond 200 immediately so Meta doesn't retry
   res.sendStatus(200);
 
+  try {
   const credentials = await getWhatsAppCredentials(companyId);
 
   for (const entry of body.entry ?? []) {
@@ -282,5 +283,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         }
       }
     }
+  }
+  } catch (e) {
+    console.error("[webhook] Unhandled error in async processing:", e);
   }
 });
