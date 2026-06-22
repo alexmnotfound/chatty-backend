@@ -254,6 +254,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .maybeSingle();
 
         const activeBot = linkedBot ?? fallbackBot;
+        console.log(`[webhook] bot: ${activeBot?.name ?? "none"}, credentials: ${credentials ? "ok" : "null"}`);
 
         if (!activeBot) {
           console.log(`[webhook] No active bot for company ${companyId} — skipping AI reply`);
@@ -269,10 +270,14 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .limit(30);
 
         const history = buildHistoryFromMessages(msgRows ?? []);
+        console.log(`[webhook] calling getAiReply, history length: ${history.length}`);
         const reply = await getAiReply(activeBot.system_prompt, history, companyId);
+        console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
 
         if (credentials) {
+          console.log(`[webhook] sending to ${from} via phoneNumberId ${credentials.phoneNumberId}`);
           const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, reply);
+          console.log(`[webhook] sendWhatsAppText result: ${sent}`);
           if (sent) {
             const { data: outMessage } = await supabase
               .from("messages")

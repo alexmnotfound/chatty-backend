@@ -92,11 +92,14 @@ export async function getWhatsAppCredentials(companyId: string): Promise<WhatsAp
     .maybeSingle();
 
   if (config?.whatsapp_access_token && config?.whatsapp_phone_number_id) {
+    let token: string;
     try {
-      return { token: decrypt(config.whatsapp_access_token), phoneNumberId: config.whatsapp_phone_number_id };
+      token = decrypt(config.whatsapp_access_token);
     } catch {
-      console.error("[whatsapp] Failed to decrypt access token for company", companyId);
+      // Stored as plaintext (legacy — re-save in Settings to encrypt)
+      token = config.whatsapp_access_token;
     }
+    return { token, phoneNumberId: config.whatsapp_phone_number_id };
   }
 
   // Fallback to env vars
