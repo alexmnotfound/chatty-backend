@@ -198,8 +198,6 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             conversation_id: conversation.id,
             company_id: companyId,
             direction: "in",
-            topic: "whatsapp",
-            extension: "text",
             wa_message_id: msg.id,
             body: msg.text.body,
             from_ai: false,
@@ -270,8 +268,6 @@ whatsappWebhookRouter.post("/", async (req, res) => {
                 conversation_id: conversation.id,
                 company_id: companyId,
                 direction: "out",
-                topic: "whatsapp",
-                extension: "text",
                 body: reply,
                 from_ai: true,
               })
