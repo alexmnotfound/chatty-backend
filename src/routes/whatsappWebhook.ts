@@ -172,6 +172,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
               contact_id: contact.id,
               status: "ai",
               ai_role_id: defaultRole?.id ?? null,
+              updated_at: new Date().toISOString(),
             })
             .select("*, aiRole:ai_roles(*), messages(*)")
             .single();
@@ -191,11 +192,14 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         if (!conversation) continue;
 
         // Store inbound message
-        const { data: incomingMessage } = await supabase
+        const { data: incomingMessage, error: msgError } = await supabase
           .from("messages")
           .insert({
             conversation_id: conversation.id,
+            company_id: companyId,
             direction: "in",
+            topic: "whatsapp",
+            extension: "text",
             wa_message_id: msg.id,
             body: msg.text.body,
             from_ai: false,
@@ -203,6 +207,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .select()
           .single();
 
+        if (msgError) console.error("[webhook] Failed to insert message:", msgError);
         if (incomingMessage) {
           void logActivity({
             companyId,
@@ -263,7 +268,10 @@ whatsappWebhookRouter.post("/", async (req, res) => {
               .from("messages")
               .insert({
                 conversation_id: conversation.id,
+                company_id: companyId,
                 direction: "out",
+                topic: "whatsapp",
+                extension: "text",
                 body: reply,
                 from_ai: true,
               })
