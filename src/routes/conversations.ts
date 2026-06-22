@@ -355,6 +355,7 @@ conversationsRouter.post("/:id/send", async (req, res) => {
     .from("messages")
     .insert({
       conversation_id: conv.id,
+      company_id: companyId,
       direction: "out",
       body: parsed.data.text,
       from_ai: false,
