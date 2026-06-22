@@ -6,8 +6,11 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:seed:demo": "tsx prisma/seed-demo.ts",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:new": "supabase migration new",
+    "db:seed": "tsx supabase/seed.ts",
+    "db:seed:demo": "tsx supabase/seed-demo.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

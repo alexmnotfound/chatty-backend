@@ -1,5 +1,5 @@
 .PHONY: install dev build start typecheck \
-       db-up db-down db-push db-reset db-seed db-studio \
+       db-up db-down db-push db-reset db-new db-seed db-seed-demo \
        seed setup logs
 
 # ── Dependencies ──────────────────────────────────────────
@@ -8,6 +8,7 @@ install:
 
 # ── Development ───────────────────────────────────────────
 dev:
+	docker compose up -d
 	npm run dev
 
 build:
@@ -27,16 +28,19 @@ db-down:
 	docker compose down
 
 db-push:
-	npx prisma db push
+	npx supabase db push
 
 db-reset:
-	npx prisma db push --force-reset
+	npx supabase db reset
+
+db-new:
+	@read -p "Migration name: " name; npx supabase migration new $$name
 
 db-seed:
-	npx prisma db seed
+	npx tsx supabase/seed.ts
 
-db-studio:
-	npx prisma studio
+db-seed-demo:
+	npx tsx supabase/seed-demo.ts
 
 # ── Shortcuts ─────────────────────────────────────────────
 seed: db-seed
