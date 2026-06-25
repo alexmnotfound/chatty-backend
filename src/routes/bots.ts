@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase.js';
 import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js';
-import { encrypt } from '../lib/encryption.js';
+import { encrypt, decrypt } from '../lib/encryption.js';
 import { getAIReply } from '../services/ai-provider.js';
 import { BOT_TEMPLATES } from '../lib/bot-templates.js';
 
@@ -116,6 +116,20 @@ const ExampleSchema = z.object({
 });
 
 // `active` is intentionally excluded — bots are activated by super-admin only
+const BusinessHoursSchema = z.object({
+  enabled: z.boolean(),
+  days: z.string(),
+  from: z.string(),
+  to: z.string(),
+  tz: z.string(),
+});
+
+const HumanHandoffSchema = z.object({
+  enabled: z.boolean(),
+  team: z.string(),
+  activeAgents: z.number().int().min(0),
+});
+
 const BotSchema = z.object({
   name: z.string().min(1),
   whatsappPhoneNumberId: z.string().optional(),
@@ -127,6 +141,10 @@ const BotSchema = z.object({
   systemPrompt: z.string().default(''),
   gender: z.enum(['masculine', 'feminine', 'non_binary', 'neutral']).default('neutral'),
   tone: z.enum(['formal', 'informal']).default('informal'),
+  greeting: z.string().optional(),
+  maxLength: z.enum(['short', 'medium', 'long']).optional(),
+  businessHours: BusinessHoursSchema.optional(),
+  humanHandoff: HumanHandoffSchema.optional(),
   examples: z.array(ExampleSchema).optional(),
   templateType: z.enum(['recepcionista', 'comercial']).nullable().optional(),
   isActive: z.boolean().optional(),
@@ -207,6 +225,10 @@ router.patch('/:id', async (req, res) => {
     if (rest.systemPrompt !== undefined) updateData.system_prompt = rest.systemPrompt;
     if (rest.gender !== undefined) updateData.gender = rest.gender;
     if (rest.tone !== undefined) updateData.tone = rest.tone;
+    if (rest.greeting !== undefined) updateData.greeting = rest.greeting;
+    if (rest.maxLength !== undefined) updateData.max_length = rest.maxLength;
+    if (rest.businessHours !== undefined) updateData.business_hours = rest.businessHours;
+    if (rest.humanHandoff !== undefined) updateData.human_handoff = rest.humanHandoff;
     if (rest.templateType !== undefined) updateData.template_type = rest.templateType ?? null;
     if (rest.isActive !== undefined) updateData.is_active = rest.isActive;
     if (whatsappAccessToken) updateData.whatsapp_access_token_enc = encrypt(whatsappAccessToken);
@@ -254,6 +276,114 @@ router.patch('/:id/set-default', async (req, res) => {
       .single();
     if (error || !bot) return res.status(404).json({ error: 'Bot no encontrado' });
     res.json(bot);
+  } catch {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// POST /api/bots/:id/test-chat — simulate a chat with the bot's AI (preview, not sent to customers)
+router.post('/:id/test-chat', async (req, res) => {
+  const { companyId } = req as unknown as AuthRequest;
+  const { systemPrompt, history } = req.body as {
+    systemPrompt?: string;
+    history: { role: 'user' | 'assistant'; content: string }[];
+  };
+
+  if (!Array.isArray(history) || history.length === 0) {
+    return res.status(400).json({ error: 'history requerido' });
+  }
+
+  try {
+    // Load bot to get provider, model, and encrypted key
+    const { data: bot } = await supabase
+      .from('bots')
+      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt')
+      .eq('id', req.params.id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (!bot) return res.status(404).json({ error: 'Bot no encontrado' });
+
+    const provider = (bot.ai_provider ?? 'openai') as 'openai' | 'claude';
+    const model = bot.ai_model ?? 'gpt-4o-mini';
+
+    // Resolve API key: bot-level first, then company-level fallback
+    let apiKey = bot.ai_api_key_enc ? decrypt(bot.ai_api_key_enc) : null;
+    if (!apiKey) {
+      const { data: cfg } = await supabase
+        .from('company_config')
+        .select('open_ai_api_key')
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      // company_config only has open_ai_api_key; claude keys live at bot level (ai_api_key_enc)
+      apiKey = provider === 'openai' ? (cfg?.open_ai_api_key ?? null) : null;
+    }
+
+    if (!apiKey) {
+      return res.status(422).json({ error: 'No hay API key configurada para este bot' });
+    }
+
+    const prompt = systemPrompt ?? bot.system_prompt ?? '';
+    const response = await getAIReply(provider, apiKey, model, prompt, history);
+    res.json({ reply: response.text });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Error al generar respuesta' });
+  }
+});
+
+// GET /api/bots/:id/stats — last 7d metrics for a bot
+router.get('/:id/stats', async (req, res) => {
+  const { companyId } = req as unknown as AuthRequest;
+  const botId = req.params.id;
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const prevSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    // conversations that had messages from this bot in last 7d
+    const { data: msgs7d } = await supabase
+      .from('messages')
+      .select('conversation_id')
+      .eq('bot_id', botId)
+      .eq('company_id', companyId)
+      .gte('created_at', since);
+
+    const convIds7d = [...new Set((msgs7d ?? []).map((m: any) => m.conversation_id))];
+    const total7d = convIds7d.length;
+
+    // same for previous 7d (for delta)
+    const { data: msgsPrev } = await supabase
+      .from('messages')
+      .select('conversation_id')
+      .eq('bot_id', botId)
+      .eq('company_id', companyId)
+      .gte('created_at', prevSince)
+      .lt('created_at', since);
+
+    const totalPrev = new Set((msgsPrev ?? []).map((m: any) => m.conversation_id)).size;
+    const delta = totalPrev > 0 ? Math.round(((total7d - totalPrev) / totalPrev) * 100) : 0;
+
+    // handoff rate: conversations with status='human' among the 7d set
+    let humanCount = 0;
+    if (convIds7d.length > 0) {
+      const { data: humanConvs } = await supabase
+        .from('conversations')
+        .select('id')
+        .in('id', convIds7d)
+        .eq('status', 'human');
+      humanCount = (humanConvs ?? []).length;
+    }
+
+    const handoffRate = total7d > 0 ? Math.round((humanCount / total7d) * 100) : 0;
+    const iaResolution = 100 - handoffRate;
+
+    res.json({
+      conversations7d: total7d,
+      conversationsDelta: delta,
+      iaResolution,
+      humanHandoffRate: handoffRate,
+      csatAverage: null,
+    });
   } catch {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
