@@ -39,6 +39,7 @@ settingsRouter.get("/", async (req, res) => {
       whatsappPhoneNumberId: config.whatsapp_phone_number_id ?? "",
       hasWhatsAppAccessToken: Boolean(config.whatsapp_access_token),
       hasWhatsAppAppSecret: Boolean(config.whatsapp_app_secret),
+      whatsappTokenExpired: Boolean(config.whatsapp_token_expired),
       hasOpenAiApiKey: Boolean(config.open_ai_api_key),
       hasAnthropicApiKey: Boolean(config.anthropic_api_key),
     });
@@ -63,10 +64,10 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
     res.status(400).json({ error: "Datos de configuración inválidos" });
     return;
   }
-  const data: Record<string, string> = {};
+  const data: Record<string, string | boolean> = {};
   if (parsed.data.whatsappPhoneNumber !== undefined) data.whatsapp_phone_number = parsed.data.whatsappPhoneNumber.trim();
   if (parsed.data.whatsappPhoneNumberId !== undefined) data.whatsapp_phone_number_id = parsed.data.whatsappPhoneNumberId.trim();
-  if (parsed.data.whatsappAccessToken !== undefined) data.whatsapp_access_token = parsed.data.whatsappAccessToken.trim();
+  if (parsed.data.whatsappAccessToken !== undefined) { data.whatsapp_access_token = parsed.data.whatsappAccessToken.trim(); data.whatsapp_token_expired = false; }
   if (parsed.data.whatsappAppSecret !== undefined) data.whatsapp_app_secret = parsed.data.whatsappAppSecret.trim();
   if (parsed.data.openAiApiKey !== undefined) data.open_ai_api_key = parsed.data.openAiApiKey.trim();
   if (parsed.data.anthropicApiKey !== undefined) data.anthropic_api_key = parsed.data.anthropicApiKey.trim();

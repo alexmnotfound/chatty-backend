@@ -346,6 +346,9 @@ conversationsRouter.post("/:id/send", async (req, res) => {
   }
   const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, conv.contact.wa_id, parsed.data.text);
   if (!sent.ok) {
+    if (sent.status === 401) {
+      await supabase.from("company_config").update({ whatsapp_token_expired: true }).eq("company_id", companyId);
+    }
     const hint = sent.status === 401 ? " (token expirado — actualizalo en Configuración → WhatsApp)" : "";
     res.status(502).json({ error: `No se pudo enviar por WhatsApp${hint}` });
     return;
