@@ -241,9 +241,10 @@ router.patch('/:id', async (req, res) => {
     }
 
     if (examples !== undefined) {
-      await supabase.from('bot_examples').delete().eq('bot_id', req.params.id);
+      const { error: delErr } = await supabase.from('bot_examples').delete().eq('bot_id', req.params.id);
+      if (delErr) throw delErr;
       if (examples.length > 0) {
-        await supabase.from('bot_examples').insert(
+        const { error: insErr } = await supabase.from('bot_examples').insert(
           examples.map(ex => ({
             user_message: ex.userMessage,
             bot_response: ex.botResponse,
@@ -252,11 +253,13 @@ router.patch('/:id', async (req, res) => {
             company_id: companyId,
           }))
         );
+        if (insErr) throw insErr;
       }
     }
 
     res.json({ ok: true });
-  } catch {
+  } catch (e) {
+    console.error('[bots PATCH]', e);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
