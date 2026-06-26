@@ -343,6 +343,7 @@ router.post('/:id/test-chat', async (req, res) => {
       })),
     });
 
+    console.log(`[test-chat] provider=${provider} model=${model}\n--- system prompt ---\n${compiledPrompt}\n---`);
     const response = await getAIReply(provider, apiKey, model, compiledPrompt, history);
     res.json({ reply: response.text });
   } catch (err) {
