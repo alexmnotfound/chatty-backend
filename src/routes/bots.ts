@@ -246,6 +246,7 @@ router.patch('/:id', async (req, res) => {
       if (examples.length > 0) {
         const { error: insErr } = await supabase.from('bot_examples').insert(
           examples.map(ex => ({
+            id: randomUUID(),
             user_message: ex.userMessage,
             bot_response: ex.botResponse,
             order: ex.order,
