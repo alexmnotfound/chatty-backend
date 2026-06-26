@@ -115,6 +115,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
   }
 
   const companyId = config.company_id;
+  const defaultRouting = (config.default_routing ?? "ai") as "ai" | "human";
 
   // Respond 200 immediately so Meta doesn't retry
   res.sendStatus(200);
@@ -152,14 +153,6 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           continue;
         }
         console.log("[webhook] contact ok, id:", contact.id);
-
-        // Fetch default_routing for this company
-        const { data: companyConfig } = await supabase
-          .from("company_config")
-          .select("default_routing")
-          .eq("company_id", companyId)
-          .maybeSingle();
-        const defaultRouting = (companyConfig?.default_routing ?? "ai") as "ai" | "human";
 
         // Get or create conversation (unique per company+contact)
         let { data: conversation } = await supabase

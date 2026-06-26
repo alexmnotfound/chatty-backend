@@ -90,6 +90,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
       whatsappPhoneNumberId: updated.whatsapp_phone_number_id ?? "",
       hasWhatsAppAccessToken: Boolean(updated.whatsapp_access_token),
       hasWhatsAppAppSecret: Boolean(updated.whatsapp_app_secret),
+      whatsappTokenExpired: Boolean(updated.whatsapp_token_expired),
       hasOpenAiApiKey: Boolean(updated.open_ai_api_key),
       hasAnthropicApiKey: Boolean(updated.anthropic_api_key),
       defaultRouting: (updated.default_routing ?? "ai") as "ai" | "human",
