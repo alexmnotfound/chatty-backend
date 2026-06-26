@@ -2,7 +2,10 @@ import { Router, type Request } from "express";
 import crypto, { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
-import { getAiReply, buildHistoryFromMessages } from "../services/ai.js";
+import { buildHistoryFromMessages } from "../services/ai.js";
+import { decrypt } from "../lib/encryption.js";
+import { compileSystemPrompt } from "../lib/prompt-compiler.js";
+import { getAIReply } from "../services/ai-provider.js";
 import { logActivity } from "../lib/activityLogger.js";
 
 export const whatsappWebhookRouter = Router();
@@ -256,7 +259,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
           .from("bots")
-          .select("id, name, system_prompt, is_active")
+          .select("id, name, system_prompt, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
           .eq("is_active", true)
@@ -264,7 +267,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
           .from("bots")
-          .select("id, name, system_prompt, is_active")
+          .select("id, name, system_prompt, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name", { ascending: true })
@@ -288,8 +291,15 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .limit(10);
 
         const history = buildHistoryFromMessages(msgRows ?? []);
-        console.log(`[webhook] calling getAiReply, history length: ${history.length}`);
-        const reply = await getAiReply(activeBot.system_prompt, history, companyId);
+        const systemPrompt = compileSystemPrompt(activeBot as any);
+        const rawKey = activeBot.ai_api_key_enc
+          ? decrypt(activeBot.ai_api_key_enc)
+          : (process.env.OPENAI_API_KEY ?? '');
+        const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
+        const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
+        console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
+        const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
+        const reply = aiResponse.text;
         console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
 
         if (credentials) {
