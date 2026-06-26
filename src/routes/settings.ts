@@ -42,6 +42,7 @@ settingsRouter.get("/", async (req, res) => {
       whatsappTokenExpired: Boolean(config.whatsapp_token_expired),
       hasOpenAiApiKey: Boolean(config.open_ai_api_key),
       hasAnthropicApiKey: Boolean(config.anthropic_api_key),
+      defaultRouting: (config.default_routing ?? "ai") as "ai" | "human",
     });
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -55,6 +56,7 @@ const patchSchema = z.object({
   whatsappAppSecret: z.string().min(1).optional(),
   openAiApiKey: z.string().min(1).optional(),
   anthropicApiKey: z.string().min(1).optional(),
+  defaultRouting: z.enum(["ai", "human"]).optional(),
 });
 
 settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
@@ -71,6 +73,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
   if (parsed.data.whatsappAppSecret !== undefined) data.whatsapp_app_secret = parsed.data.whatsappAppSecret.trim();
   if (parsed.data.openAiApiKey !== undefined) data.open_ai_api_key = parsed.data.openAiApiKey.trim();
   if (parsed.data.anthropicApiKey !== undefined) data.anthropic_api_key = parsed.data.anthropicApiKey.trim();
+  if (parsed.data.defaultRouting !== undefined) data.default_routing = parsed.data.defaultRouting;
   if (Object.keys(data).length === 0) {
     res.status(400).json({ error: "Nada para actualizar" });
     return;
@@ -89,6 +92,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
       hasWhatsAppAppSecret: Boolean(updated.whatsapp_app_secret),
       hasOpenAiApiKey: Boolean(updated.open_ai_api_key),
       hasAnthropicApiKey: Boolean(updated.anthropic_api_key),
+      defaultRouting: (updated.default_routing ?? "ai") as "ai" | "human",
     });
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
