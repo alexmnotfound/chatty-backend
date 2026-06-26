@@ -298,6 +298,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
         const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
         console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
+        console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
         const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
         const reply = aiResponse.text;
         console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
