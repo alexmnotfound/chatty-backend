@@ -118,14 +118,13 @@ const ExampleSchema = z.object({
 // `active` is intentionally excluded — bots are activated by super-admin only
 const BusinessHoursSchema = z.object({
   enabled: z.boolean(),
-  days: z.string(),
+  days: z.array(z.string()),
   from: z.string(),
   to: z.string(),
   tz: z.string(),
 });
 
 const HumanHandoffSchema = z.object({
-  enabled: z.boolean(),
   team: z.string(),
   activeAgents: z.number().int().min(0),
 });
