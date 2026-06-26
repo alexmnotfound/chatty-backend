@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase.js';
 import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../lib/encryption.js';
 import { getAIReply } from '../services/ai-provider.js';
+import { compileSystemPrompt } from '../lib/prompt-compiler.js';
 import { BOT_TEMPLATES } from '../lib/bot-templates.js';
 
 const router = Router();
@@ -283,9 +284,12 @@ router.patch('/:id/set-default', async (req, res) => {
 // POST /api/bots/:id/test-chat — simulate a chat with the bot's AI (preview, not sent to customers)
 router.post('/:id/test-chat', async (req, res) => {
   const { companyId } = req as unknown as AuthRequest;
-  const { systemPrompt, history } = req.body as {
+  const { systemPrompt, history, tone, gender, examples } = req.body as {
     systemPrompt?: string;
     history: { role: 'user' | 'assistant'; content: string }[];
+    tone?: string;
+    gender?: string;
+    examples?: { userMessage: string; botResponse: string; order: number }[];
   };
 
   if (!Array.isArray(history) || history.length === 0) {
@@ -296,7 +300,7 @@ router.post('/:id/test-chat', async (req, res) => {
     // Load bot to get provider, model, and encrypted key
     const { data: bot } = await supabase
       .from('bots')
-      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt')
+      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt, gender, tone')
       .eq('id', req.params.id)
       .eq('company_id', companyId)
       .maybeSingle();
@@ -323,8 +327,19 @@ router.post('/:id/test-chat', async (req, res) => {
       return res.status(422).json({ error: 'No hay API key configurada para este bot' });
     }
 
-    const prompt = systemPrompt ?? bot.system_prompt ?? '';
-    const response = await getAIReply(provider, apiKey, model, prompt, history);
+    // Compile full system prompt using current (possibly unsaved) parameters from client
+    const compiledPrompt = compileSystemPrompt({
+      system_prompt: systemPrompt ?? bot.system_prompt ?? '',
+      gender: gender ?? bot.gender,
+      tone: tone ?? bot.tone,
+      examples: (examples ?? []).map(ex => ({
+        user_message: ex.userMessage,
+        bot_response: ex.botResponse,
+        order: ex.order,
+      })),
+    });
+
+    const response = await getAIReply(provider, apiKey, model, compiledPrompt, history);
     res.json({ reply: response.text });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Error al generar respuesta' });
