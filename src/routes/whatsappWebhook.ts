@@ -299,7 +299,18 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .limit(10);
 
           const history = buildHistoryFromMessages(msgRows ?? []);
-          const systemPrompt = compileSystemPrompt(activeBot as any);
+          const { data: companyCfg } = await supabase
+            .from("company_config")
+            .select("company_name, company_hours, company_address, company_services, company_contact")
+            .eq("company_id", companyId)
+            .maybeSingle();
+          const systemPrompt = compileSystemPrompt(activeBot as any, {
+            name: companyCfg?.company_name,
+            hours: companyCfg?.company_hours,
+            address: companyCfg?.company_address,
+            services: companyCfg?.company_services,
+            contact: companyCfg?.company_contact,
+          });
           const rawKey = activeBot.ai_api_key_enc
             ? decrypt(activeBot.ai_api_key_enc)
             : (process.env.OPENAI_API_KEY ?? '');

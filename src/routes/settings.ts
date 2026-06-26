@@ -30,20 +30,29 @@ async function ensureConfig(companyId: string) {
   return created;
 }
 
+function formatConfig(config: Record<string, unknown>) {
+  return {
+    whatsappPhoneNumber: config.whatsapp_phone_number ?? "",
+    whatsappPhoneNumberId: config.whatsapp_phone_number_id ?? "",
+    hasWhatsAppAccessToken: Boolean(config.whatsapp_access_token),
+    hasWhatsAppAppSecret: Boolean(config.whatsapp_app_secret),
+    whatsappTokenExpired: Boolean(config.whatsapp_token_expired),
+    hasOpenAiApiKey: Boolean(config.open_ai_api_key),
+    hasAnthropicApiKey: Boolean(config.anthropic_api_key),
+    defaultRouting: (config.default_routing ?? "ai") as "ai" | "human",
+    companyName: (config.company_name as string) ?? "",
+    companyHours: (config.company_hours as string) ?? "",
+    companyAddress: (config.company_address as string) ?? "",
+    companyServices: (config.company_services as string) ?? "",
+    companyContact: (config.company_contact as string) ?? "",
+  };
+}
+
 settingsRouter.get("/", async (req, res) => {
   const companyId = getCompanyId(req);
   try {
     const config = await ensureConfig(companyId);
-    res.json({
-      whatsappPhoneNumber: config.whatsapp_phone_number ?? "",
-      whatsappPhoneNumberId: config.whatsapp_phone_number_id ?? "",
-      hasWhatsAppAccessToken: Boolean(config.whatsapp_access_token),
-      hasWhatsAppAppSecret: Boolean(config.whatsapp_app_secret),
-      whatsappTokenExpired: Boolean(config.whatsapp_token_expired),
-      hasOpenAiApiKey: Boolean(config.open_ai_api_key),
-      hasAnthropicApiKey: Boolean(config.anthropic_api_key),
-      defaultRouting: (config.default_routing ?? "ai") as "ai" | "human",
-    });
+    res.json(formatConfig(config));
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -57,6 +66,11 @@ const patchSchema = z.object({
   openAiApiKey: z.string().min(1).optional(),
   anthropicApiKey: z.string().min(1).optional(),
   defaultRouting: z.enum(["ai", "human"]).optional(),
+  companyName: z.string().optional(),
+  companyHours: z.string().optional(),
+  companyAddress: z.string().optional(),
+  companyServices: z.string().optional(),
+  companyContact: z.string().optional(),
 });
 
 settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
@@ -74,6 +88,11 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
   if (parsed.data.openAiApiKey !== undefined) data.open_ai_api_key = parsed.data.openAiApiKey.trim();
   if (parsed.data.anthropicApiKey !== undefined) data.anthropic_api_key = parsed.data.anthropicApiKey.trim();
   if (parsed.data.defaultRouting !== undefined) data.default_routing = parsed.data.defaultRouting;
+  if (parsed.data.companyName !== undefined) data.company_name = parsed.data.companyName.trim();
+  if (parsed.data.companyHours !== undefined) data.company_hours = parsed.data.companyHours.trim();
+  if (parsed.data.companyAddress !== undefined) data.company_address = parsed.data.companyAddress.trim();
+  if (parsed.data.companyServices !== undefined) data.company_services = parsed.data.companyServices.trim();
+  if (parsed.data.companyContact !== undefined) data.company_contact = parsed.data.companyContact.trim();
   if (Object.keys(data).length === 0) {
     res.status(400).json({ error: "Nada para actualizar" });
     return;
@@ -85,16 +104,7 @@ settingsRouter.patch("/", requireRole("admin"), async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    res.json({
-      whatsappPhoneNumber: updated.whatsapp_phone_number ?? "",
-      whatsappPhoneNumberId: updated.whatsapp_phone_number_id ?? "",
-      hasWhatsAppAccessToken: Boolean(updated.whatsapp_access_token),
-      hasWhatsAppAppSecret: Boolean(updated.whatsapp_app_secret),
-      whatsappTokenExpired: Boolean(updated.whatsapp_token_expired),
-      hasOpenAiApiKey: Boolean(updated.open_ai_api_key),
-      hasAnthropicApiKey: Boolean(updated.anthropic_api_key),
-      defaultRouting: (updated.default_routing ?? "ai") as "ai" | "human",
-    });
+    res.json(formatConfig(updated));
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
   }

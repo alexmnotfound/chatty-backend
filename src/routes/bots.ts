@@ -331,6 +331,13 @@ router.post('/:id/test-chat', async (req, res) => {
       return res.status(422).json({ error: 'No hay API key configurada para este bot' });
     }
 
+    // Load company info for variable resolution
+    const { data: cfg } = await supabase
+      .from('company_config')
+      .select('company_name, company_hours, company_address, company_services, company_contact')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
     // Compile full system prompt using current (possibly unsaved) parameters from client
     const compiledPrompt = compileSystemPrompt({
       system_prompt: systemPrompt ?? bot.system_prompt ?? '',
@@ -341,11 +348,17 @@ router.post('/:id/test-chat', async (req, res) => {
         bot_response: ex.botResponse,
         order: ex.order,
       })),
+    }, {
+      name: cfg?.company_name,
+      hours: cfg?.company_hours,
+      address: cfg?.company_address,
+      services: cfg?.company_services,
+      contact: cfg?.company_contact,
     });
 
     console.log(`[test-chat] provider=${provider} model=${model}\n--- system prompt ---\n${compiledPrompt}\n---`);
     const response = await getAIReply(provider, apiKey, model, compiledPrompt, history);
-    res.json({ reply: response.text });
+    res.json({ reply: response.text, model: response.model });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Error al generar respuesta' });
   }
