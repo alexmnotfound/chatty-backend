@@ -8,6 +8,7 @@ import { logActivity } from "../lib/activityLogger.js";
 export const whatsappWebhookRouter = Router();
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+const HUMAN_INACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
 function verifySignature(rawBody: Buffer, sigHeader: string, appSecret: string): boolean {
   if (!sigHeader.startsWith("sha256=")) return false;
@@ -152,6 +153,14 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         }
         console.log("[webhook] contact ok, id:", contact.id);
 
+        // Fetch default_routing for this company
+        const { data: companyConfig } = await supabase
+          .from("company_config")
+          .select("default_routing")
+          .eq("company_id", companyId)
+          .maybeSingle();
+        const defaultRouting = (companyConfig?.default_routing ?? "ai") as "ai" | "human";
+
         // Get or create conversation (unique per company+contact)
         let { data: conversation } = await supabase
           .from("conversations")
@@ -176,7 +185,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .insert({
               company_id: companyId,
               contact_id: contact.id,
-              status: "ai",
+              status: defaultRouting,
               ai_role_id: defaultRole?.id ?? null,
               updated_at: new Date().toISOString(),
             })
@@ -233,7 +242,23 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           })
           .eq("id", conversation.id);
 
-        if (conversation.status === "human") continue;
+        if (conversation.status === "human") {
+          const lastActivity = conversation.updated_at
+            ? new Date(conversation.updated_at).getTime()
+            : 0;
+          const isInactive = Date.now() - lastActivity > HUMAN_INACTIVITY_TIMEOUT_MS;
+
+          if (isInactive) {
+            await supabase
+              .from("conversations")
+              .update({ status: defaultRouting, updated_at: new Date().toISOString() })
+              .eq("id", conversation.id);
+            conversation = { ...conversation, status: defaultRouting };
+            console.log(`[webhook] inactivity timeout — reset conversation ${conversation.id} to "${defaultRouting}"`);
+          } else {
+            continue;
+          }
+        }
 
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
@@ -261,13 +286,13 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           continue;
         }
 
-        // Re-fetch messages for history (last 30)
+        // Re-fetch messages for history (last 10)
         const { data: msgRows } = await supabase
           .from("messages")
           .select("*")
           .eq("conversation_id", conversation.id)
           .order("created_at", { ascending: true })
-          .limit(30);
+          .limit(10);
 
         const history = buildHistoryFromMessages(msgRows ?? []);
         console.log(`[webhook] calling getAiReply, history length: ${history.length}`);
