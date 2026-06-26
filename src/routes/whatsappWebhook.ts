@@ -165,6 +165,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           .eq("contact_id", contact.id)
           .maybeSingle();
 
+        const isNewConversation = !conversation;
         if (!conversation) {
           // Find default AI role
           const { data: defaultRole } = await supabase
@@ -259,7 +260,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
           .from("bots")
-          .select("id, name, system_prompt, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
           .eq("is_active", true)
@@ -267,7 +268,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
           .from("bots")
-          .select("id, name, system_prompt, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name", { ascending: true })
@@ -282,26 +283,34 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           continue;
         }
 
-        // Re-fetch messages for history (last 10)
-        const { data: msgRows } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversation.id)
-          .order("created_at", { ascending: true })
-          .limit(10);
+        const botGreeting = (activeBot as any).greeting as string | null;
+        let reply: string;
 
-        const history = buildHistoryFromMessages(msgRows ?? []);
-        const systemPrompt = compileSystemPrompt(activeBot as any);
-        const rawKey = activeBot.ai_api_key_enc
-          ? decrypt(activeBot.ai_api_key_enc)
-          : (process.env.OPENAI_API_KEY ?? '');
-        const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
-        const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
-        console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
-        console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
-        const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
-        const reply = aiResponse.text;
-        console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
+        if (isNewConversation && botGreeting) {
+          reply = botGreeting;
+          console.log(`[webhook] new conversation — using greeting instead of AI`);
+        } else {
+          // Re-fetch messages for history (last 10)
+          const { data: msgRows } = await supabase
+            .from("messages")
+            .select("*")
+            .eq("conversation_id", conversation.id)
+            .order("created_at", { ascending: true })
+            .limit(10);
+
+          const history = buildHistoryFromMessages(msgRows ?? []);
+          const systemPrompt = compileSystemPrompt(activeBot as any);
+          const rawKey = activeBot.ai_api_key_enc
+            ? decrypt(activeBot.ai_api_key_enc)
+            : (process.env.OPENAI_API_KEY ?? '');
+          const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
+          const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
+          console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
+          console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
+          const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
+          reply = aiResponse.text;
+          console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
+        }
 
         if (credentials) {
           console.log(`[webhook] sending to ${from} via phoneNumberId ${credentials.phoneNumberId}`);
