@@ -11,6 +11,25 @@ import { logActivity } from "../lib/activityLogger.js";
 
 export const whatsappWebhookRouter = Router();
 
+const HANDOFF_TOOL = {
+  name: 'solicitar_handoff',
+  description: 'Escalá esta conversación a un agente humano cuando no podés resolver la consulta, el cliente lo solicita, o la situación lo requiere.',
+  parameters: {
+    type: 'object',
+    properties: {
+      resumen: {
+        type: 'string',
+        description: 'Resumen breve de la consulta (1-2 oraciones). Va a la tarea del equipo.',
+      },
+      mensaje_despedida: {
+        type: 'string',
+        description: "Mensaje a enviar al cliente anunciando la derivación. Ej: 'Te paso con nuestro equipo, te contactan a la brevedad.'",
+      },
+    },
+    required: ['resumen', 'mensaje_despedida'],
+  },
+};
+
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const HUMAN_INACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
@@ -261,7 +280,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, human_handoff, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
           .eq("is_active", true)
@@ -269,7 +288,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, human_handoff, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name", { ascending: true })
@@ -315,6 +334,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             ...activeBot,
             ragContext,
             businessHoursEnabled: (activeBot as any).business_hours?.enabled ?? false,
+            handoffTeam: (activeBot as any).human_handoff?.team ?? null,
           } as any, {
             name: companyCfg?.company_name,
             hours: companyCfg?.company_hours,
@@ -326,8 +346,58 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
           console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
           console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
-          const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
-          reply = aiResponse.toolCalls.length === 0 ? (aiResponse.text ?? '') : '';
+          const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history, [HANDOFF_TOOL]);
+          console.log(`[webhook] AI toolCalls: ${aiResponse.toolCalls.map(tc => tc.name).join(', ') || 'none'}`);
+
+          const handoffCall = aiResponse.toolCalls.find((tc) => tc.name === 'solicitar_handoff');
+
+          if (handoffCall) {
+            const resumen = (handoffCall.arguments.resumen as string) ?? '';
+            const mensajeDespedida = (handoffCall.arguments.mensaje_despedida as string) ?? '';
+
+            // Send farewell message to WhatsApp
+            if (credentials && mensajeDespedida) {
+              const sent = await sendWhatsAppText(credentials.phoneNumberId, credentials.token, from, mensajeDespedida);
+              if (sent.ok) {
+                await supabase.from('messages').insert({
+                  conversation_id: conversation.id,
+                  company_id: companyId,
+                  direction: 'out',
+                  body: mensajeDespedida,
+                  from_ai: true,
+                });
+              }
+            }
+
+            // Mark conversation as human
+            await supabase
+              .from('conversations')
+              .update({ status: 'human', updated_at: new Date().toISOString() })
+              .eq('id', conversation.id);
+
+            // Create task in pool (no assignee)
+            await supabase.from('tasks').insert({
+              id: randomUUID(),
+              company_id: companyId,
+              conversation_id: conversation.id,
+              title: `Derivación — ${contact.name ?? from}`,
+              description: resumen,
+            });
+
+            void logActivity({
+              companyId,
+              action: 'conversation.handoff_by_bot',
+              entityType: 'conversation',
+              entityId: conversation.id,
+              conversationId: conversation.id,
+              meta: { resumen },
+            });
+
+            continue; // skip normal reply path
+          }
+
+          // No tool call — normal text reply
+          reply = aiResponse.text ?? '';
           console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
         }
 
