@@ -288,11 +288,12 @@ router.patch('/:id/set-default', async (req, res) => {
 // POST /api/bots/:id/test-chat — simulate a chat with the bot's AI (preview, not sent to customers)
 router.post('/:id/test-chat', async (req, res) => {
   const { companyId } = req as unknown as AuthRequest;
-  const { systemPrompt, history, tone, gender, examples } = req.body as {
+  const { systemPrompt, history, tone, gender, maxLength, examples } = req.body as {
     systemPrompt?: string;
     history: { role: 'user' | 'assistant'; content: string }[];
     tone?: string;
     gender?: string;
+    maxLength?: string;
     examples?: { userMessage: string; botResponse: string; order: number }[];
   };
 
@@ -304,7 +305,7 @@ router.post('/:id/test-chat', async (req, res) => {
     // Load bot to get provider, model, and encrypted key
     const { data: bot } = await supabase
       .from('bots')
-      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt, gender, tone')
+      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt, name, gender, tone, max_length')
       .eq('id', req.params.id)
       .eq('company_id', companyId)
       .maybeSingle();
@@ -340,9 +341,11 @@ router.post('/:id/test-chat', async (req, res) => {
 
     // Compile full system prompt using current (possibly unsaved) parameters from client
     const compiledPrompt = compileSystemPrompt({
+      name: bot.name,
       system_prompt: systemPrompt ?? bot.system_prompt ?? '',
       gender: gender ?? bot.gender,
       tone: tone ?? bot.tone,
+      max_length: maxLength ?? bot.max_length,
       examples: (examples ?? []).map(ex => ({
         user_message: ex.userMessage,
         bot_response: ex.botResponse,

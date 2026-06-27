@@ -260,7 +260,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
           .eq("is_active", true)
@@ -268,7 +268,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name", { ascending: true })
