@@ -94,4 +94,20 @@ describe('compileSystemPrompt', () => {
     const result = compileSystemPrompt(bot as any);
     expect(result).not.toMatch(/\{\{empresa\./);
   });
+
+  it('omits horario section when businessHoursEnabled is false/undefined', () => {
+    const result = compileSystemPrompt({ system_prompt: 'Sos un bot.' });
+    expect(result).not.toContain('## Horario de atención');
+  });
+
+  it('injects ## Horario de atención when businessHoursEnabled is true', () => {
+    const result = compileSystemPrompt(
+      { system_prompt: 'Sos un bot.', businessHoursEnabled: true },
+    );
+    expect(result).toContain('## Horario de atención');
+    expect(result).toContain('fuera del horario');
+    const horarionPos = result.indexOf('## Horario de atención');
+    const fechaPos = result.indexOf('## Fecha y hora');
+    expect(horarionPos).toBeLessThan(fechaPos);
+  });
 });

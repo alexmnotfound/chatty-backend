@@ -42,6 +42,7 @@ type BotLike = {
   maxLength?: string | null;
   examples?: Array<{ user_message?: string; userMessage?: string; bot_response?: string; botResponse?: string; order: number }>;
   ragContext?: string[];
+  businessHoursEnabled?: boolean;
 };
 
 export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string {
@@ -91,6 +92,15 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
     for (const chunk of bot.ragContext) {
       parts.push(`\n---\n${chunk}`);
     }
+  }
+
+  if (bot.businessHoursEnabled) {
+    parts.push(
+      '\n## Horario de atención\n' +
+      'Si la hora actual (ver ## Fecha y hora) está fuera del horario indicado en # Contexto, ' +
+      'informá al cliente que el negocio está cerrado y que puede contactarse en el próximo ' +
+      'horario de atención. No proceses la consulta principal fuera de horario.'
+    );
   }
 
   const now = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
