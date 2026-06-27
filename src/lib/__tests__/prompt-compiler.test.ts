@@ -110,4 +110,20 @@ describe('compileSystemPrompt', () => {
     const fechaPos = result.indexOf('## Fecha y hora');
     expect(horarionPos).toBeLessThan(fechaPos);
   });
+
+  it('always injects ## Derivación a humano section', () => {
+    const result = compileSystemPrompt({ system_prompt: 'Sos un bot.' });
+    expect(result).toContain('## Derivación a humano');
+    expect(result).toContain('solicitar_handoff');
+    expect(result).toContain('nuestro equipo');
+  });
+
+  it('uses handoffTeam when provided', () => {
+    const result = compileSystemPrompt({
+      system_prompt: 'Sos un bot.',
+      handoffTeam: 'el equipo de ventas',
+    });
+    expect(result).toContain('el equipo de ventas');
+    expect(result).not.toContain('nuestro equipo');
+  });
 });

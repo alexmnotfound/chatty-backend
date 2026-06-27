@@ -43,6 +43,7 @@ type BotLike = {
   examples?: Array<{ user_message?: string; userMessage?: string; bot_response?: string; botResponse?: string; order: number }>;
   ragContext?: string[];
   businessHoursEnabled?: boolean;
+  handoffTeam?: string | null;
 };
 
 export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string {
@@ -93,6 +94,16 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
       parts.push(`\n---\n${chunk}`);
     }
   }
+
+  const team = bot.handoffTeam ?? 'nuestro equipo';
+  parts.push(
+    '\n## Derivación a humano\n' +
+    `Cuando no podés resolver la consulta, el cliente lo solicita, o la situación lo requiere, ` +
+    `usá la herramienta solicitar_handoff. ` +
+    `En mensaje_despedida avisá que pasás con ${team}. ` +
+    `En resumen describí brevemente el motivo de la consulta. ` +
+    `No sigas respondiendo después de llamar al tool.`
+  );
 
   if (bot.businessHoursEnabled) {
     parts.push(
