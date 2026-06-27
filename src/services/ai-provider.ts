@@ -67,3 +67,12 @@ export async function getAIReply(
 
   throw new Error(`Unknown AI provider: ${provider}`);
 }
+
+export function buildHistoryFromMessages(
+  rows: Array<{ direction: string; body: string }>,
+): ChatMessage[] {
+  return rows.map((r) => ({
+    role: r.direction === 'in' ? 'user' : 'assistant',
+    content: r.body,
+  }));
+}

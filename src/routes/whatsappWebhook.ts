@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import crypto, { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
-import { buildHistoryFromMessages } from "../services/ai.js";
+import { buildHistoryFromMessages } from "../services/ai-provider.js";
 import { decrypt } from "../lib/encryption.js";
 import { compileSystemPrompt } from "../lib/prompt-compiler.js";
 import { retrieveTopK } from "../services/rag.js";
