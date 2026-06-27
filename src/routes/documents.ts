@@ -100,9 +100,12 @@ documentsRouter.post('/:id/documents', upload.single('file'), async (req, res) =
     return res.status(400).json({ error: 'Se requiere un archivo o texto' });
   }
 
+  const insertPayload: Record<string, unknown> = { bot_id: botId, company_id: companyId, name, source_type: sourceType, size_bytes: sizeBytes, status: 'processing' };
+  if (sourceType === 'paste') insertPayload.content = text;
+
   const { data: doc, error: docErr } = await supabase
     .from('bot_documents')
-    .insert({ bot_id: botId, company_id: companyId, name, source_type: sourceType, size_bytes: sizeBytes, status: 'processing' })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -134,6 +137,96 @@ documentsRouter.post('/:id/documents', upload.single('file'), async (req, res) =
     await supabase.from('bot_documents').update({ status: 'error' }).eq('id', doc.id);
     res.status(500).json({ error: 'Error al procesar el documento' });
   }
+});
+
+documentsRouter.get('/:id/documents/:docId/content', async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { id: botId, docId } = req.params;
+
+  const { data: doc } = await supabase
+    .from('bot_documents')
+    .select('id, source_type, content')
+    .eq('id', docId)
+    .eq('bot_id', botId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+  if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+  if (doc.source_type !== 'paste') return res.status(400).json({ error: 'Solo documentos de texto pegado' });
+
+  if (doc.content) return res.json({ content: doc.content });
+
+  // Fallback: reconstruct from chunks (docs created before content column existed)
+  const { data: chunks } = await supabase
+    .from('document_chunks')
+    .select('content, chunk_index')
+    .eq('document_id', docId)
+    .order('chunk_index', { ascending: true });
+
+  res.json({ content: (chunks ?? []).map(c => c.content).join('\n') });
+});
+
+documentsRouter.patch('/:id/documents/:docId', async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { id: botId, docId } = req.params;
+
+  const { data: doc } = await supabase
+    .from('bot_documents')
+    .select('id, source_type')
+    .eq('id', docId)
+    .eq('bot_id', botId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+  if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+
+  const { status, text, name } = req.body as { status?: string; text?: string; name?: string };
+
+  // Toggle active/inactive
+  if (status === 'active' || status === 'inactive') {
+    const { data: updated, error } = await supabase
+      .from('bot_documents')
+      .update({ status })
+      .eq('id', docId)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: 'Error al actualizar estado' });
+    return res.json(updated);
+  }
+
+  // Re-process paste content
+  if (typeof text === 'string' && text.trim() && doc.source_type === 'paste') {
+    const apiKey = await resolveApiKey(botId, companyId);
+    if (!apiKey) return res.status(400).json({ error: 'No hay API key configurada' });
+
+    const docName = typeof name === 'string' && name.trim() ? name : 'Texto pegado';
+    const sizeBytes = Buffer.byteLength(text, 'utf-8');
+
+    await supabase.from('bot_documents')
+      .update({ name: docName, size_bytes: sizeBytes, status: 'processing', content: text })
+      .eq('id', docId);
+    await supabase.from('document_chunks').delete().eq('document_id', docId);
+
+    try {
+      const chunks = chunkText(text);
+      if (chunks.length === 0) {
+        await supabase.from('bot_documents').update({ status: 'error' }).eq('id', docId);
+        return res.status(422).json({ error: 'El documento no contiene texto útil' });
+      }
+      const embeddings = await embedTexts(chunks, apiKey);
+      const rows = chunks.map((content, i) => ({
+        document_id: docId, bot_id: botId, company_id: companyId,
+        content, embedding: embeddings[i], chunk_index: i,
+      }));
+      await supabase.from('document_chunks').insert(rows);
+      await supabase.from('bot_documents').update({ status: 'active' }).eq('id', docId);
+      const { data: updated } = await supabase.from('bot_documents').select().eq('id', docId).single();
+      return res.json(updated);
+    } catch {
+      await supabase.from('bot_documents').update({ status: 'error' }).eq('id', docId);
+      return res.status(500).json({ error: 'Error al procesar el documento' });
+    }
+  }
+
+  return res.status(400).json({ error: 'Cuerpo inválido' });
 });
 
 documentsRouter.delete('/:id/documents/:docId', async (req, res) => {
