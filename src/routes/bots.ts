@@ -72,7 +72,7 @@ router.post('/test-ai', async (req, res) => {
       'Eres un asistente de prueba.',
       [{ role: 'user', content: 'Responde solo con "OK" para confirmar que funciona.' }]
     );
-    res.json({ valid: true, response: response.text });
+    res.json({ valid: true, response: response.text ?? '' });
   } catch (err: unknown) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Error al probar la API key' });
   }
@@ -367,7 +367,7 @@ router.post('/:id/test-chat', async (req, res) => {
 
     console.log(`[test-chat] provider=${provider} model=${model}\n--- system prompt ---\n${compiledPrompt}\n---`);
     const response = await getAIReply(provider, apiKey, model, compiledPrompt, history);
-    res.json({ reply: response.text, model: response.model });
+    res.json({ reply: response.text ?? '', model: response.model });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Error al generar respuesta' });
   }

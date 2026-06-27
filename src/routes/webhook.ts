@@ -166,14 +166,15 @@ router.post('/:botId', async (req: Request, res: Response) => {
 
     // Send WhatsApp reply
     const accessToken = decrypt(activeBot.whatsapp_access_token_enc);
-    await sendWhatsAppText(activeBot.whatsapp_phone_number_id, accessToken, waId, aiResponse.text);
+    const replyText = aiResponse.text ?? '';
+    await sendWhatsAppText(activeBot.whatsapp_phone_number_id, accessToken, waId, replyText);
 
     // Store outbound message with token tracking
     await supabase.from('messages').insert({
       conversation_id: conversation.id,
       company_id: bot.company_id,
       direction: 'out',
-      body: aiResponse.text,
+      body: replyText,
       from_ai: true,
       bot_id: activeBot.id,
       tokens_in: aiResponse.tokensIn,

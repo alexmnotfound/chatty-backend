@@ -327,7 +327,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
           console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
           const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history);
-          reply = aiResponse.text;
+          reply = aiResponse.toolCalls.length === 0 ? (aiResponse.text ?? '') : '';
           console.log(`[webhook] AI reply: "${reply.slice(0, 80)}..."`);
         }
 
