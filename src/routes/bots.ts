@@ -306,7 +306,7 @@ router.post('/:id/test-chat', async (req, res) => {
     // Load bot to get provider, model, and encrypted key
     const { data: bot } = await supabase
       .from('bots')
-      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt, name, gender, tone, max_length, business_hours')
+      .select('ai_provider, ai_model, ai_api_key_enc, system_prompt, name, gender, tone, max_length, business_hours, human_handoff')
       .eq('id', req.params.id)
       .eq('company_id', companyId)
       .maybeSingle();
@@ -352,6 +352,7 @@ router.post('/:id/test-chat', async (req, res) => {
       tone: tone ?? bot.tone,
       max_length: maxLength ?? bot.max_length,
       businessHoursEnabled: (bot as any).business_hours?.enabled ?? false,
+      handoffTeam: (bot as any).human_handoff?.team ?? null,
       examples: (examples ?? []).map(ex => ({
         user_message: ex.userMessage,
         bot_response: ex.botResponse,
