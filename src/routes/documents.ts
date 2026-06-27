@@ -36,7 +36,7 @@ async function resolveApiKey(botId: string, companyId: string): Promise<string |
     .select('open_ai_api_key')
     .eq('company_id', companyId)
     .maybeSingle();
-  return cfg?.open_ai_api_key ? decrypt(cfg.open_ai_api_key) : null;
+  return cfg?.open_ai_api_key ?? null;
 }
 
 documentsRouter.get('/:id/documents', async (req, res) => {
