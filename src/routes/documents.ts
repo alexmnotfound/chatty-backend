@@ -79,10 +79,11 @@ documentsRouter.post('/:id/documents', upload.single('file'), async (req, res) =
     if (ext === 'pdf') {
       sourceType = 'pdf';
       try {
-        const pdfParseModule = await import('pdf-parse');
-        const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
-        const parsed = await pdfParse(req.file.buffer);
-        text = parsed.text;
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new (PDFParse as any)({ data: req.file.buffer });
+        const result = await parser.getText();
+        text = result.pages.map((p: { text: string }) => p.text).join('\n');
+        if (!text.trim()) throw new Error('empty');
       } catch {
         return res.status(422).json({ error: 'No se pudo leer el PDF. Verificá que no esté protegido.' });
       }
