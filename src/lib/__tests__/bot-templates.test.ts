@@ -31,11 +31,16 @@ describe('BOT_TEMPLATES', () => {
     expect(comercial.systemPrompt).toContain('{{empresa.catalogo}}');
   });
 
-  it('compiles each template with company info leaving no unresolved variables', () => {
+  it('compiles each template with bot + company info leaving no unresolved variables', () => {
     for (const t of BOT_TEMPLATES) {
-      const result = compileSystemPrompt({ systemPrompt: t.systemPrompt, examples: [] } as any, company);
+      const result = compileSystemPrompt(
+        { name: 'Valentina', gender: 'feminine', systemPrompt: t.systemPrompt, examples: [] } as any,
+        company,
+      );
       expect(result).not.toMatch(/\{\{empresa\./);
+      expect(result).not.toMatch(/\{\{bot\./);
       expect(result).toContain('ACME');
+      expect(result).toContain('Valentina');
     }
   });
 

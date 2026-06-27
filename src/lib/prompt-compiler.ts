@@ -5,6 +5,13 @@ const GENDER_LABEL: Record<string, string> = {
   neutral: 'neutral',
 };
 
+const ARTICLE_LABEL: Record<string, string> = {
+  masculine: 'el',
+  feminine: 'la',
+  non_binary: 'le',
+  neutral: 'el/la',
+};
+
 const TONE_LABEL: Record<string, string> = {
   formal: 'formal',
   informal: 'informal',
@@ -26,6 +33,7 @@ export type CompanyInfo = {
 };
 
 type BotLike = {
+  name?: string | null;
   system_prompt?: string;
   systemPrompt?: string;
   gender?: string | null;
@@ -39,8 +47,12 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
   const parts: string[] = [];
 
   // Resolve {{empresa.*}} template variables before pushing
+  const article = bot.gender ? ARTICLE_LABEL[bot.gender] ?? '' : '';
+
   let base = bot.system_prompt ?? bot.systemPrompt ?? '';
   base = base
+    .replace(/\{\{bot\.nombre\}\}/g, bot.name ?? '')
+    .replace(/\{\{bot\.articulo\}\}/g, article)
     .replace(/\{\{empresa\.nombre\}\}/g, company?.name ?? '')
     .replace(/\{\{empresa\.horarios\}\}/g, company?.hours ?? '')
     .replace(/\{\{empresa\.direccion\}\}/g, company?.address ?? '')

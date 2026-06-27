@@ -53,6 +53,28 @@ describe('compileSystemPrompt', () => {
     expect(result).not.toContain('## Ejemplos');
   });
 
+  it('resolves {{bot.nombre}} and {{bot.articulo}} from bot fields', () => {
+    const bot = {
+      name: 'Valentina',
+      gender: 'feminine',
+      systemPrompt: 'Sos {{bot.articulo}} recepcionista. Me llamo {{bot.nombre}}.',
+      examples: [],
+    };
+    const result = compileSystemPrompt(bot as any);
+    expect(result).toContain('Sos la recepcionista');
+    expect(result).toContain('Me llamo Valentina');
+    expect(result).not.toContain('{{bot.');
+  });
+
+  it('resolves {{bot.articulo}} for each gender', () => {
+    const make = (gender: string) =>
+      compileSystemPrompt({ systemPrompt: '{{bot.articulo}}', gender, examples: [] } as any);
+    expect(make('masculine')).toContain('el');
+    expect(make('feminine')).toContain('la');
+    expect(make('non_binary')).toContain('le');
+    expect(make('neutral')).toContain('el/la');
+  });
+
   it('resolves the catalogo variable from company.catalog', () => {
     const bot = { systemPrompt: 'Catálogo: {{empresa.catalogo}}', examples: [] };
     const result = compileSystemPrompt(bot as any, { catalog: 'Producto X' });
