@@ -38,4 +38,10 @@ describe('BOT_TEMPLATES', () => {
       expect(result).toContain('ACME');
     }
   });
+
+  it('renders the catalogo value in the comercial template', () => {
+    const comercial = BOT_TEMPLATES.find((t) => t.key === 'comercial')!;
+    const result = compileSystemPrompt({ systemPrompt: comercial.systemPrompt, examples: [] } as any, company);
+    expect(result).toContain('Caño 1/2" — $1000');
+  });
 });
