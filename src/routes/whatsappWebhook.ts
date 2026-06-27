@@ -298,7 +298,11 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .order("created_at", { ascending: true })
             .limit(10);
 
-          const history = buildHistoryFromMessages(msgRows ?? []);
+          const rawHistory = buildHistoryFromMessages(msgRows ?? []);
+          // OpenAI requires conversation to start with a user message.
+          // Leading assistant messages (from previous broken sessions) cause hallucinations.
+          const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
+          const history = firstUserIdx > 0 ? rawHistory.slice(firstUserIdx) : rawHistory;
           const { data: companyCfg } = await supabase
             .from("company_config")
             .select("company_name, company_hours, company_address, company_services, company_contact")
