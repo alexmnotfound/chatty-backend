@@ -261,7 +261,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("whatsapp_phone_number_id", phoneNumberId)
           .eq("is_active", true)
@@ -269,7 +269,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         const { data: fallbackBot } = linkedBot ? { data: null } : await supabase
           .from("bots")
-          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, examples:bot_examples(*)")
+          .select("id, name, system_prompt, greeting, max_length, is_active, ai_model, ai_provider, ai_api_key_enc, gender, tone, business_hours, examples:bot_examples(*)")
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name", { ascending: true })
@@ -311,7 +311,11 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             ? decrypt(activeBot.ai_api_key_enc)
             : (process.env.OPENAI_API_KEY ?? '');
           const ragContext = await retrieveTopK((activeBot as any).id, msg.text.body, rawKey).catch(() => []);
-          const systemPrompt = compileSystemPrompt({ ...activeBot, ragContext } as any, {
+          const systemPrompt = compileSystemPrompt({
+            ...activeBot,
+            ragContext,
+            businessHoursEnabled: (activeBot as any).business_hours?.enabled ?? false,
+          } as any, {
             name: companyCfg?.company_name,
             hours: companyCfg?.company_hours,
             address: companyCfg?.company_address,
