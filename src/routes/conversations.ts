@@ -178,7 +178,7 @@ conversationsRouter.post("/:id/release-to-ai", async (req, res) => {
 
   const { error } = await supabase
     .from("conversations")
-    .update({ status: "ai", assigned_to_id: null })
+    .update({ status: "ai", assigned_to_id: null, resolved_by: null })
     .eq("id", existing.id);
   if (error) {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -316,6 +316,48 @@ conversationsRouter.post("/:id/handoff", async (req, res) => {
   } catch {
     res.status(500).json({ error: "Error interno del servidor" });
   }
+});
+
+conversationsRouter.post("/:id/resolve", async (req, res) => {
+  const companyId = getCompanyId(req);
+  const member = (req as any).member as { id: string };
+
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("id, status")
+    .eq("id", req.params.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (!conversation) {
+    res.status(404).json({ error: "Conversación no encontrada" });
+    return;
+  }
+  if (conversation.status === "resolved") {
+    res.status(400).json({ error: "La conversación ya está resuelta" });
+    return;
+  }
+
+  const resolvedBy = conversation.status === "ai" ? "bot" : "human";
+  const { error } = await supabase
+    .from("conversations")
+    .update({ status: "resolved", resolved_by: resolvedBy, updated_at: new Date().toISOString() })
+    .eq("id", conversation.id);
+  if (error) {
+    res.status(500).json({ error: "Error interno del servidor" });
+    return;
+  }
+
+  const conv = await fetchFullConversation(conversation.id);
+  void logActivity({
+    companyId,
+    actorId: member?.id,
+    action: "conversation.resolved",
+    entityType: "conversation",
+    entityId: conversation.id,
+    conversationId: conversation.id,
+    meta: { resolvedBy },
+  });
+  res.json(conv);
 });
 
 const sendSchema = z.object({ text: z.string().min(1).max(4096) });

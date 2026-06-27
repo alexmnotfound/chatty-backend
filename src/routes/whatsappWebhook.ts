@@ -275,6 +275,12 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           } else {
             continue;
           }
+        } else if (conversation.status === "resolved") {
+          await supabase
+            .from("conversations")
+            .update({ status: "ai", resolved_by: null, updated_at: new Date().toISOString() })
+            .eq("id", conversation.id);
+          conversation = { ...conversation, status: "ai" };
         }
 
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
