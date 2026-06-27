@@ -64,5 +64,12 @@ describe('compileSystemPrompt', () => {
     const bot = { systemPrompt: 'Catálogo: {{empresa.catalogo}}', examples: [] };
     const result = compileSystemPrompt(bot as any, { name: 'ACME' });
     expect(result).not.toContain('{{empresa.catalogo}}');
+    expect(result).toContain('Catálogo: ');
+  });
+
+  it('resolves empresa variables to empty string when no company is passed', () => {
+    const bot = { systemPrompt: 'Hola {{empresa.nombre}} {{empresa.catalogo}}', examples: [] };
+    const result = compileSystemPrompt(bot as any);
+    expect(result).not.toMatch(/\{\{empresa\./);
   });
 });

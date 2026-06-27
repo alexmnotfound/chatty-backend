@@ -40,15 +40,13 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
 
   // Resolve {{empresa.*}} template variables before pushing
   let base = bot.system_prompt ?? bot.systemPrompt ?? '';
-  if (company) {
-    base = base
-      .replace(/\{\{empresa\.nombre\}\}/g, company.name ?? '')
-      .replace(/\{\{empresa\.horarios\}\}/g, company.hours ?? '')
-      .replace(/\{\{empresa\.direccion\}\}/g, company.address ?? '')
-      .replace(/\{\{empresa\.servicios\}\}/g, company.services ?? '')
-      .replace(/\{\{empresa\.contacto\}\}/g, company.contact ?? '')
-      .replace(/\{\{empresa\.catalogo\}\}/g, company.catalog ?? '');
-  }
+  base = base
+    .replace(/\{\{empresa\.nombre\}\}/g, company?.name ?? '')
+    .replace(/\{\{empresa\.horarios\}\}/g, company?.hours ?? '')
+    .replace(/\{\{empresa\.direccion\}\}/g, company?.address ?? '')
+    .replace(/\{\{empresa\.servicios\}\}/g, company?.services ?? '')
+    .replace(/\{\{empresa\.contacto\}\}/g, company?.contact ?? '')
+    .replace(/\{\{empresa\.catalogo\}\}/g, company?.catalog ?? '');
   parts.push(base);
 
   const gender = bot.gender ? GENDER_LABEL[bot.gender] ?? bot.gender : null;
