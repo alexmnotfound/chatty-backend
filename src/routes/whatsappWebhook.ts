@@ -291,18 +291,16 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           console.log(`[webhook] new conversation — using greeting instead of AI`);
         } else {
           // Re-fetch messages for history (last 10)
-          const { data: msgRows } = await supabase
+          // Fetch the last 10 messages (newest first) then reverse so the
+          // current inbound message is always included in the window.
+          const { data: msgRowsDesc } = await supabase
             .from("messages")
             .select("*")
             .eq("conversation_id", conversation.id)
-            .order("created_at", { ascending: true })
+            .order("created_at", { ascending: false })
             .limit(10);
 
-          const rawHistory = buildHistoryFromMessages(msgRows ?? []);
-          // OpenAI requires conversation to start with a user message.
-          // Leading assistant messages (from previous broken sessions) cause hallucinations.
-          const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
-          const history = firstUserIdx > 0 ? rawHistory.slice(firstUserIdx) : rawHistory;
+          const history = buildHistoryFromMessages((msgRowsDesc ?? []).reverse());
           const { data: companyCfg } = await supabase
             .from("company_config")
             .select("company_name, company_hours, company_address, company_services, company_contact")
