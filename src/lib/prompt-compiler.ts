@@ -22,6 +22,7 @@ export type CompanyInfo = {
   address?: string | null;
   services?: string | null;
   contact?: string | null;
+  catalog?: string | null;
 };
 
 type BotLike = {
@@ -39,32 +40,32 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
 
   // Resolve {{empresa.*}} template variables before pushing
   let base = bot.system_prompt ?? bot.systemPrompt ?? '';
-  if (company) {
-    base = base
-      .replace(/\{\{empresa\.nombre\}\}/g, company.name ?? '')
-      .replace(/\{\{empresa\.horarios\}\}/g, company.hours ?? '')
-      .replace(/\{\{empresa\.direccion\}\}/g, company.address ?? '')
-      .replace(/\{\{empresa\.servicios\}\}/g, company.services ?? '')
-      .replace(/\{\{empresa\.contacto\}\}/g, company.contact ?? '');
-  }
+  base = base
+    .replace(/\{\{empresa\.nombre\}\}/g, company?.name ?? '')
+    .replace(/\{\{empresa\.horarios\}\}/g, company?.hours ?? '')
+    .replace(/\{\{empresa\.direccion\}\}/g, company?.address ?? '')
+    .replace(/\{\{empresa\.servicios\}\}/g, company?.services ?? '')
+    .replace(/\{\{empresa\.contacto\}\}/g, company?.contact ?? '')
+    .replace(/\{\{empresa\.catalogo\}\}/g, company?.catalog ?? '');
   parts.push(base);
 
   const gender = bot.gender ? GENDER_LABEL[bot.gender] ?? bot.gender : null;
   const tone = bot.tone ? TONE_LABEL[bot.tone] ?? bot.tone : null;
   if (gender || tone) {
     const traits = [gender, tone].filter(Boolean).join(', ');
-    parts.push(`\nPersonalidad: ${traits}`);
+    parts.push(`\n## Personalidad\n${traits}`);
   }
 
   const maxLength = bot.max_length ?? bot.maxLength;
   if (maxLength && MAX_LENGTH_LABEL[maxLength]) {
-    parts.push(`\nLongitud de respuesta: ${MAX_LENGTH_LABEL[maxLength]}`);
+    parts.push(`\n## Longitud de respuesta\n${MAX_LENGTH_LABEL[maxLength]}`);
   }
 
   const examples = bot.examples ?? [];
   const sorted = [...examples].sort((a, b) => a.order - b.order);
   if (sorted.length > 0) {
-    parts.push('\nEjemplos de conversación:');
+    parts.push('\n## Ejemplos');
+    parts.push('Usá estos ejemplos como referencia de estilo; no los copies textual.');
     for (const ex of sorted) {
       parts.push(`Usuario: "${ex.user_message ?? ex.userMessage}"`);
       parts.push(`Vos: "${ex.bot_response ?? ex.botResponse}"`);
@@ -72,7 +73,7 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
   }
 
   const now = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
-  parts.push(`\nFecha y hora actual: ${now}`);
+  parts.push(`\n## Fecha y hora\n${now}`);
 
   return parts.join('\n');
 }
