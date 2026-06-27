@@ -41,6 +41,7 @@ type BotLike = {
   max_length?: string | null;
   maxLength?: string | null;
   examples?: Array<{ user_message?: string; userMessage?: string; bot_response?: string; botResponse?: string; order: number }>;
+  ragContext?: string[];
 };
 
 export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string {
@@ -81,6 +82,14 @@ export function compileSystemPrompt(bot: BotLike, company?: CompanyInfo): string
     for (const ex of sorted) {
       parts.push(`Usuario: "${ex.user_message ?? ex.userMessage}"`);
       parts.push(`Vos: "${ex.bot_response ?? ex.botResponse}"`);
+    }
+  }
+
+  if (bot.ragContext && bot.ragContext.length > 0) {
+    parts.push('\n## Información de referencia');
+    parts.push('Usá estos fragmentos si son relevantes para responder:');
+    for (const chunk of bot.ragContext) {
+      parts.push(`\n---\n${chunk}`);
     }
   }
 

@@ -6,6 +6,7 @@ import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../lib/encryption.js';
 import { getAIReply } from '../services/ai-provider.js';
 import { compileSystemPrompt } from '../lib/prompt-compiler.js';
+import { retrieveTopK } from '../services/rag.js';
 import { BOT_TEMPLATES } from '../lib/bot-templates.js';
 
 const router = Router();
@@ -339,8 +340,12 @@ router.post('/:id/test-chat', async (req, res) => {
       .eq('company_id', companyId)
       .maybeSingle();
 
+    const lastUserMsg = [...history].reverse().find(m => m.role === 'user')?.content ?? '';
+    const ragContext = lastUserMsg ? await retrieveTopK(req.params.id, lastUserMsg, apiKey).catch(() => []) : [];
+
     // Compile full system prompt using current (possibly unsaved) parameters from client
     const compiledPrompt = compileSystemPrompt({
+      ragContext,
       name: bot.name,
       system_prompt: systemPrompt ?? bot.system_prompt ?? '',
       gender: gender ?? bot.gender,

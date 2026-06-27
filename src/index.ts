@@ -37,6 +37,7 @@ import { superUsersRouter } from "./routes/superUsers.js";
 import { superDashboardRouter } from "./routes/superDashboard.js";
 import { superPluginsRouter } from "./routes/superPlugins.js";
 import { botsRouter } from "./routes/bots.js";
+import { documentsRouter } from "./routes/documents.js";
 
 const app = express();
 app.set("trust proxy", 1); // needed when behind ngrok/reverse proxy (rate-limit uses X-Forwarded-For)
@@ -88,6 +89,7 @@ app.use("/webhook/whatsapp", whatsappWebhookRouter);
 app.use("/webhook", webhookRouter);
 
 app.use("/api/bots", botsRouter);
+app.use("/api/bots", documentsRouter);
 app.use("/api/auth", authLimiter, authRouter);
 app.use("/api/super/auth", authLimiter, superAdminRouter);
 app.use("/api/super/companies", superCompaniesRouter);

@@ -5,6 +5,7 @@ import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.j
 import { buildHistoryFromMessages } from "../services/ai.js";
 import { decrypt } from "../lib/encryption.js";
 import { compileSystemPrompt } from "../lib/prompt-compiler.js";
+import { retrieveTopK } from "../services/rag.js";
 import { getAIReply } from "../services/ai-provider.js";
 import { logActivity } from "../lib/activityLogger.js";
 
@@ -306,16 +307,17 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .select("company_name, company_hours, company_address, company_services, company_contact")
             .eq("company_id", companyId)
             .maybeSingle();
-          const systemPrompt = compileSystemPrompt(activeBot as any, {
+          const rawKey = activeBot.ai_api_key_enc
+            ? decrypt(activeBot.ai_api_key_enc)
+            : (process.env.OPENAI_API_KEY ?? '');
+          const ragContext = await retrieveTopK((activeBot as any).id, msg.text.body, rawKey).catch(() => []);
+          const systemPrompt = compileSystemPrompt({ ...activeBot, ragContext } as any, {
             name: companyCfg?.company_name,
             hours: companyCfg?.company_hours,
             address: companyCfg?.company_address,
             services: companyCfg?.company_services,
             contact: companyCfg?.company_contact,
           });
-          const rawKey = activeBot.ai_api_key_enc
-            ? decrypt(activeBot.ai_api_key_enc)
-            : (process.env.OPENAI_API_KEY ?? '');
           const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
           const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
           console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
