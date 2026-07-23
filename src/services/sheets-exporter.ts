@@ -14,11 +14,30 @@ export type ReceiptRow = {
   fileLink: string;
 };
 
+type ServiceAccountKey = { client_email: string; [key: string]: unknown };
+
+// JSON.parse's SyntaxError embeds a snippet of the string it failed to parse —
+// never let that bubble up here, since the string is decrypted credential
+// material (potentially including private_key fragments).
+function parseServiceAccountKey(saKeyEnc: string): ServiceAccountKey {
+  let plaintext: string;
+  try {
+    plaintext = decrypt(saKeyEnc);
+  } catch {
+    throw new Error('No se pudo desencriptar la credencial del service account');
+  }
+  try {
+    return JSON.parse(plaintext) as ServiceAccountKey;
+  } catch {
+    throw new Error('La credencial del service account no es un JSON válido');
+  }
+}
+
 export async function appendReceiptToSheet(
   config: { spreadsheetId: string; sheetName: string; saKeyEnc: string },
   row: ReceiptRow,
 ): Promise<void> {
-  const saKey = JSON.parse(decrypt(config.saKeyEnc));
+  const saKey = parseServiceAccountKey(config.saKeyEnc);
   const auth = new google.auth.GoogleAuth({
     credentials: saKey,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -39,6 +58,5 @@ export async function appendReceiptToSheet(
 }
 
 export function extractServiceAccountEmail(saKeyEnc: string): string {
-  const saKey = JSON.parse(decrypt(saKeyEnc));
-  return saKey.client_email;
+  return parseServiceAccountKey(saKeyEnc).client_email;
 }
