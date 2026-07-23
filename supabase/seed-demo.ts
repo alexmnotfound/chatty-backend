@@ -375,72 +375,107 @@ async function main() {
   const now = new Date();
 
   for (const contactData of DEMO_CONTACTS) {
-    // Check if contact already exists
-    const { data: existing } = await supabase
+    // Check if contact already exists — if so, still backfill any conversation
+    // that's missing its messages (covers rows from a prior run of this script
+    // before the company_id bug below was fixed).
+    const { data: existingContact } = await supabase
       .from("contacts")
       .select("id")
       .eq("company_id", company.id)
       .eq("wa_id", contactData.waId)
       .maybeSingle();
 
-    if (existing) {
+    let contact = existingContact;
+    if (!contact) {
+      const { data: newContact, error: contactError } = await supabase
+        .from("contacts")
+        .insert({ company_id: company.id, wa_id: contactData.waId, name: contactData.name })
+        .select()
+        .single();
+      if (contactError || !newContact) {
+        console.error(`Error creando contacto ${contactData.name}:`, contactError);
+        continue;
+      }
+      contact = newContact;
+    } else {
       console.log(`Contacto ya existe: ${contactData.name} (${contactData.waId})`);
-      continue;
     }
-
-    const { data: contact } = await supabase
-      .from("contacts")
-      .insert({ company_id: company.id, wa_id: contactData.waId, name: contactData.name })
-      .select()
-      .single();
-    if (!contact) continue;
 
     for (const convData of contactData.conversations) {
       const aiRole = convData.aiRoleKey ? roleByKey[convData.aiRoleKey] : null;
       const lastMsgMinutesAgo = convData.messages.at(-1)?.minutesAgo ?? 0;
 
-      const { data: conversation } = await supabase
+      let { data: conversation } = await supabase
         .from("conversations")
-        .insert({
-          company_id: company.id,
-          contact_id: contact.id,
-          status: convData.status,
-          unread_count: convData.unreadCount,
-          ai_role_id: aiRole?.id ?? null,
-          assigned_to_id: (convData as any).assignToAdmin ? admin.id : null,
-          updated_at: new Date(now.getTime() - lastMsgMinutesAgo * 60 * 1000).toISOString(),
-        })
-        .select()
-        .single();
-      if (!conversation) continue;
+        .select("id")
+        .eq("company_id", company.id)
+        .eq("contact_id", contact.id)
+        .maybeSingle();
 
-      for (const msg of convData.messages) {
-        const createdAt = new Date(now.getTime() - msg.minutesAgo * 60 * 1000).toISOString();
-        await supabase.from("messages").insert({
-          conversation_id: conversation.id,
-          direction: msg.direction,
-          body: msg.body,
-          from_ai: msg.fromAi,
-          created_at: createdAt,
-        });
+      if (!conversation) {
+        const { data: newConversation, error: convError } = await supabase
+          .from("conversations")
+          .insert({
+            company_id: company.id,
+            contact_id: contact.id,
+            status: convData.status,
+            unread_count: convData.unreadCount,
+            ai_role_id: aiRole?.id ?? null,
+            assigned_to_id: (convData as any).assignToAdmin ? admin.id : null,
+            updated_at: new Date(now.getTime() - lastMsgMinutesAgo * 60 * 1000).toISOString(),
+          })
+          .select("id")
+          .single();
+        if (convError || !newConversation) {
+          console.error(`Error creando conversación para ${contactData.name}:`, convError);
+          continue;
+        }
+        conversation = newConversation;
       }
 
-      for (const taskData of convData.tasks) {
-        const dueAt = new Date(now.getTime() + taskData.daysFromNow * 24 * 60 * 60 * 1000).toISOString();
-        await supabase.from("tasks").insert({
-          company_id: company.id,
-          conversation_id: conversation.id,
-          title: taskData.title,
-          description: taskData.description,
-          status: taskData.status,
-          assigned_to_id: admin.id,
-          created_by_id: admin.id,
-          due_at: dueAt,
-        });
+      const { count: messageCount } = await supabase
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", conversation.id);
+
+      if (!messageCount) {
+        for (const msg of convData.messages) {
+          const createdAt = new Date(now.getTime() - msg.minutesAgo * 60 * 1000).toISOString();
+          const { error: msgError } = await supabase.from("messages").insert({
+            conversation_id: conversation.id,
+            company_id: company.id,
+            direction: msg.direction,
+            body: msg.body,
+            from_ai: msg.fromAi,
+            created_at: createdAt,
+          });
+          if (msgError) console.error(`Error insertando mensaje para ${contactData.name}:`, msgError);
+        }
+        console.log(`  ↳ ${contactData.name}: ${convData.messages.length} mensajes insertados`);
+      }
+
+      const { count: taskCount } = await supabase
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", conversation.id);
+
+      if (!taskCount) {
+        for (const taskData of convData.tasks) {
+          const dueAt = new Date(now.getTime() + taskData.daysFromNow * 24 * 60 * 60 * 1000).toISOString();
+          const { error: taskError } = await supabase.from("tasks").insert({
+            company_id: company.id,
+            conversation_id: conversation.id,
+            title: taskData.title,
+            description: taskData.description,
+            status: taskData.status,
+            assigned_to_id: admin.id,
+            created_by_id: admin.id,
+            due_at: dueAt,
+          });
+          if (taskError) console.error(`Error insertando tarea para ${contactData.name}:`, taskError);
+        }
       }
     }
-
-    console.log(`Creado: ${contactData.name} — ${contactData.conversations[0].status}, ${contactData.conversations[0].messages.length} mensajes`);
   }
 
   console.log("\nDato de acceso demo:");
