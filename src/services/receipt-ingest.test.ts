@@ -124,7 +124,16 @@ describe('ingestReceiptMessage', () => {
       })
     );
     const insertArg = mockInsert.mock.calls[0][0];
-    expect(insertArg.extracted).toBeUndefined();
+    expect(insertArg.extracted).toEqual({
+      monto: { value: null, confidence: 'baja' },
+      fecha_operacion: { value: null, confidence: 'baja' },
+      banco_origen: { value: null, confidence: 'baja' },
+      remitente: { value: null, confidence: 'baja' },
+      cuit: { value: null, confidence: 'baja' },
+      cbu_alias: { value: null, confidence: 'baja' },
+      referencia: { value: null, confidence: 'baja' },
+      concepto: { value: null, confidence: 'baja' },
+    });
   });
 
   it('download throws: does not upload or insert, resolves isReceipt:true', async () => {

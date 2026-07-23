@@ -233,16 +233,24 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           const media = msg.type === "image" ? msg.image : msg.document;
           if (!media?.id) continue;
 
-          const { data: activeBotForKey } = await supabase
+          const { data: activeBotsForKey } = await supabase
             .from("bots")
             .select("ai_api_key_enc, ai_provider")
             .eq("company_id", companyId)
             .eq("is_active", true)
-            .maybeSingle();
+            .order("name", { ascending: true })
+            .limit(1);
+          const activeBotForKey = activeBotsForKey?.[0];
           const anthropicApiKey =
             activeBotForKey?.ai_provider === "claude" && activeBotForKey.ai_api_key_enc
               ? decrypt(activeBotForKey.ai_api_key_enc)
               : (process.env.ANTHROPIC_API_KEY ?? "");
+          if (!anthropicApiKey) {
+            console.error(
+              `[webhook] ⚠️  No Anthropic key available for company ${companyId} — receipt extraction will fail. ` +
+              `Configure a Claude bot or set ANTHROPIC_API_KEY.`
+            );
+          }
 
           const { isReceipt } = await ingestReceiptMessage({
             mediaId: media.id,

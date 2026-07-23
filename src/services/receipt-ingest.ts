@@ -1,7 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { supabase } from '../lib/supabase.js';
 import { downloadWhatsAppMedia } from './media-download.js';
-import { extractReceipt } from './receipt-extractor.js';
+import { extractReceipt, type ReceiptFields } from './receipt-extractor.js';
+
+// Frontend renders every ReceiptFields key unconditionally (e.g.
+// extracted.remitente.value) — an error-state row must still carry this
+// full shape (DB default is `{}`), or the review UI throws on a null field.
+const EMPTY_FIELDS: ReceiptFields = {
+  monto: { value: null, confidence: 'baja' },
+  fecha_operacion: { value: null, confidence: 'baja' },
+  banco_origen: { value: null, confidence: 'baja' },
+  remitente: { value: null, confidence: 'baja' },
+  cuit: { value: null, confidence: 'baja' },
+  cbu_alias: { value: null, confidence: 'baja' },
+  referencia: { value: null, confidence: 'baja' },
+  concepto: { value: null, confidence: 'baja' },
+};
 
 export async function ingestReceiptMessage(params: {
   mediaId: string;
@@ -49,6 +63,7 @@ export async function ingestReceiptMessage(params: {
       storage_path: storagePath,
       mime_type: mimeType,
       estado: 'error',
+      extracted: EMPTY_FIELDS,
     });
     return { isReceipt: true };
   }
