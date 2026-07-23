@@ -8,7 +8,7 @@ alter table bot_documents add column if not exists content text;
 
 -- Update match_chunks to skip inactive documents
 create or replace function match_chunks(
-  query_embedding extensions.vector(1536),
+  query_embedding vector(1536),
   match_bot_id    uuid,
   match_count     int default 5
 )
