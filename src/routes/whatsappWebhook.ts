@@ -8,6 +8,7 @@ import { compileSystemPrompt } from "../lib/prompt-compiler.js";
 import { retrieveTopK } from "../services/rag.js";
 import { getAIReply } from "../services/ai-provider.js";
 import { logActivity } from "../lib/activityLogger.js";
+import { ingestReceiptMessage } from "../services/receipt-ingest.js";
 
 export const whatsappWebhookRouter = Router();
 
@@ -83,6 +84,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             timestamp: string;
             type: string;
             text?: { body: string };
+            image?: { id: string; mime_type: string };
+            document?: { id: string; mime_type: string; filename?: string };
           }>;
         };
         field?: string;
@@ -156,7 +159,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
       for (const msg of value.messages) {
         console.log("[webhook] msg.type:", msg.type, "has text:", !!msg.text?.body);
-        if (msg.type !== "text" || !msg.text?.body) continue;
+        if (msg.type !== "text" && msg.type !== "image" && msg.type !== "document") continue;
 
         const from = msg.from;
         const contactInfo = value.contacts?.find((c) => c.wa_id === from);
@@ -224,6 +227,41 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         }
         if (!conversation) continue;
 
+        let bodyText: string;
+        if (msg.type === "image" || msg.type === "document") {
+          if (!credentials) continue;
+          const media = msg.type === "image" ? msg.image : msg.document;
+          if (!media?.id) continue;
+
+          const { data: activeBotForKey } = await supabase
+            .from("bots")
+            .select("ai_api_key_enc, ai_provider")
+            .eq("company_id", companyId)
+            .eq("is_active", true)
+            .maybeSingle();
+          const anthropicApiKey =
+            activeBotForKey?.ai_provider === "claude" && activeBotForKey.ai_api_key_enc
+              ? decrypt(activeBotForKey.ai_api_key_enc)
+              : (process.env.ANTHROPIC_API_KEY ?? "");
+
+          const { isReceipt } = await ingestReceiptMessage({
+            mediaId: media.id,
+            messageId: msg.id,
+            companyId,
+            conversationId: conversation.id,
+            whatsappToken: credentials.token,
+            anthropicApiKey,
+          });
+
+          if (isReceipt) continue; // silent — goes to the receipts review queue, no chat reply
+
+          bodyText = "[el cliente envió una imagen]";
+        } else if (msg.text?.body) {
+          bodyText = msg.text.body;
+        } else {
+          continue;
+        }
+
         // Store inbound message
         const { data: incomingMessage, error: msgError } = await supabase
           .from("messages")
@@ -232,7 +270,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             company_id: companyId,
             direction: "in",
             wa_message_id: msg.id,
-            body: msg.text.body,
+            body: bodyText,
             from_ai: false,
           })
           .select()
@@ -335,7 +373,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           const rawKey = activeBot.ai_api_key_enc
             ? decrypt(activeBot.ai_api_key_enc)
             : (process.env.OPENAI_API_KEY ?? '');
-          const ragContext = await retrieveTopK((activeBot as any).id, msg.text.body, rawKey).catch(() => []);
+          const ragContext = await retrieveTopK((activeBot as any).id, bodyText, rawKey).catch(() => []);
           const systemPrompt = compileSystemPrompt({
             ...activeBot,
             ragContext,
