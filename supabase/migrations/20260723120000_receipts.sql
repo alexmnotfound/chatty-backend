@@ -24,3 +24,7 @@ create table sheets_config (
   auto_export     boolean not null default false,
   updated_at      timestamptz not null default now()
 );
+
+insert into storage.buckets (id, name, public)
+values ('receipts', 'receipts', false)
+on conflict (id) do nothing;
