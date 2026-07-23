@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { downloadWhatsAppMedia } from './media-download.js';
 
 describe('downloadWhatsAppMedia', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('fetches the media URL then downloads the binary', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
