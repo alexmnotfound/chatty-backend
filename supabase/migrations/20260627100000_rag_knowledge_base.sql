@@ -1,5 +1,4 @@
--- Install pgvector extension with proper schema
-create extension if not exists vector schema public;
+create extension if not exists vector;
 
 drop table if exists document_chunks cascade;
 drop table if exists bot_documents cascade;
@@ -22,16 +21,16 @@ create table document_chunks (
   bot_id       uuid not null references bots(id) on delete cascade,
   company_id   uuid not null,
   content      text not null,
-  embedding    vector(1536),
+  embedding    extensions.vector(1536),
   chunk_index  int not null,
   created_at   timestamptz default now()
 );
 
 create index on document_chunks (bot_id);
-create index on document_chunks using hnsw (embedding vector_cosine_ops);
+create index on document_chunks using hnsw (embedding extensions.vector_cosine_ops);
 
 create or replace function match_chunks(
-  query_embedding vector(1536),
+  query_embedding extensions.vector(1536),
   match_bot_id    uuid,
   match_count     int default 5
 )
