@@ -227,6 +227,121 @@ const DEMO_CONTACTS = [
       },
     ],
   },
+  {
+    waId: "5491244556677",
+    name: "Rocío Medina",
+    conversations: [
+      {
+        status: "ai",
+        unreadCount: 0,
+        aiRoleKey: "receptionist",
+        messages: [
+          { direction: "in", body: "hola, a qué hora abren los sábados?", fromAi: false, minutesAgo: 25 },
+          { direction: "out", body: "¡Hola Rocío! Los sábados abrimos de 9 a 13hs. ¿Necesitás algo más?", fromAi: true, minutesAgo: 24 },
+          { direction: "in", body: "genial, gracias!", fromAi: false, minutesAgo: 23 },
+        ],
+        tasks: [] as any[],
+      },
+    ],
+  },
+  {
+    waId: "5491255667788",
+    name: "Fernando Castro",
+    conversations: [
+      {
+        status: "human",
+        unreadCount: 2,
+        aiRoleKey: "seller",
+        assignToAdmin: true,
+        messages: [
+          { direction: "in", body: "Buenas, somos una cadena de 8 locales y queremos evaluar el plan Enterprise", fromAi: false, minutesAgo: 500 },
+          { direction: "out", body: "¡Hola Fernando! Excelente. Te derivo con nuestro equipo comercial para armar una propuesta a medida para las 8 sucursales.", fromAi: true, minutesAgo: 499 },
+          { direction: "out", body: "Hola Fernando, soy Julián del equipo comercial. Para 8 locales te conviene el plan Enterprise con inbox centralizado. ¿Cada local maneja su propio WhatsApp?", fromAi: false, minutesAgo: 480 },
+          { direction: "in", body: "sí, cada local tiene su número pero queremos ver todo desde un panel central", fromAi: false, minutesAgo: 470 },
+          { direction: "out", body: "Perfecto, eso es justo lo que hace el plan Enterprise. Te preparo una propuesta con precios por volumen.", fromAi: false, minutesAgo: 465 },
+          { direction: "in", body: "dale, y podemos tener una call esta semana para verlo con el resto del equipo?", fromAi: false, minutesAgo: 40 },
+          { direction: "in", body: "el jueves a la tarde nos vendría bien", fromAi: false, minutesAgo: 38 },
+        ],
+        tasks: [
+          { title: "Coordinar call Enterprise con Fernando Castro (8 locales)", description: "Propuesta Enterprise multi-sucursal, panel centralizado. Cliente pidió call el jueves a la tarde.", status: "pending", daysFromNow: 2 },
+        ],
+      },
+    ],
+  },
+  {
+    waId: "5491266778899",
+    name: "Julieta Paz",
+    conversations: [
+      {
+        status: "resolved",
+        unreadCount: 0,
+        aiRoleKey: "receptionist",
+        messages: [
+          { direction: "in", body: "hola! quería saber si tienen soporte en español", fromAi: false, minutesAgo: 6000 },
+          { direction: "out", body: "¡Hola Julieta! Sí, todo nuestro soporte es en español y estamos disponibles de lunes a viernes de 9 a 18hs. ¿Hay algo puntual en lo que te podamos ayudar?", fromAi: true, minutesAgo: 5999 },
+          { direction: "in", body: "no por ahora, solo quería confirmar antes de contratar. gracias!", fromAi: false, minutesAgo: 5990 },
+          { direction: "out", body: "¡Genial! Cualquier consulta, estamos a un mensaje de distancia 😊", fromAi: true, minutesAgo: 5989 },
+        ],
+        tasks: [] as any[],
+      },
+    ],
+  },
+  {
+    waId: "5491277889900",
+    name: "Nicolás Herrera",
+    conversations: [
+      {
+        status: "ai",
+        unreadCount: 1,
+        aiRoleKey: "extractor",
+        messages: [
+          { direction: "in", body: "hola, acá va el comprobante de la seña", fromAi: false, minutesAgo: 18 },
+          { direction: "in", body: "[IMAGEN:transferencia-sena-nicolas.jpg]", fromAi: false, minutesAgo: 16 },
+        ],
+        tasks: [] as any[],
+      },
+    ],
+  },
+  {
+    waId: "5491288990011",
+    name: "Camila Suárez",
+    conversations: [
+      {
+        status: "human",
+        unreadCount: 3,
+        aiRoleKey: "receptionist",
+        assignToAdmin: true,
+        messages: [
+          { direction: "in", body: "hola, la app se me cerró sola dos veces hoy y perdí lo que estaba escribiendo", fromAi: false, minutesAgo: 50 },
+          { direction: "out", body: "¡Hola Camila! Qué mal, disculpá las molestias. Te paso con soporte técnico para revisar qué está pasando.", fromAi: true, minutesAgo: 49 },
+          { direction: "in", body: "es bastante urgente porque lo necesito para laburar hoy", fromAi: false, minutesAgo: 45 },
+          { direction: "in", body: "alguien me puede ayudar?", fromAi: false, minutesAgo: 12 },
+        ],
+        tasks: [
+          { title: "Bug: app se cierra sola — Camila Suárez", description: "Cliente reporta cierres inesperados de la app, pérdida de texto sin guardar. Urgente, lo necesita para trabajar hoy.", status: "pending", daysFromNow: 0 },
+        ],
+      },
+    ],
+  },
+  {
+    waId: "5491299001122",
+    name: "Tomás Aguirre",
+    conversations: [
+      {
+        status: "resolved",
+        unreadCount: 0,
+        aiRoleKey: "seller",
+        messages: [
+          { direction: "in", body: "hola, ya tengo el plan Team pero quería preguntar si puedo sumar un agente de IA más", fromAi: false, minutesAgo: 1000 },
+          { direction: "out", body: "¡Hola Tomás! Sí, podés agregar agentes adicionales por $3.000/mes cada uno. ¿Querés que te lo sume ahora?", fromAi: true, minutesAgo: 999 },
+          { direction: "in", body: "sí dale, sumalo", fromAi: false, minutesAgo: 990 },
+          { direction: "out", body: "¡Listo! Ya tenés el agente adicional activo en tu cuenta. Cualquier cosa avisame 🙌", fromAi: true, minutesAgo: 989 },
+          { direction: "in", body: "genial, gracias!", fromAi: false, minutesAgo: 985 },
+        ],
+        tasks: [] as any[],
+      },
+    ],
+  },
 ];
 
 async function main() {
