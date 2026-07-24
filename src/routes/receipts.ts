@@ -116,6 +116,7 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido al exportar';
+    console.error(`[receipts] Export failed for receipt ${receipt.id}:`, message);
     await supabase.from('receipts').update({ estado: 'error', export_error: message }).eq('id', receipt.id);
     return res.status(502).json({ error: 'No se pudo exportar a Google Sheets' });
   }
