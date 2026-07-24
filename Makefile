@@ -1,5 +1,5 @@
 .PHONY: install dev build start typecheck \
-       db-up db-down db-push db-reset db-new db-seed db-seed-demo \
+       db-up db-down db-push db-reset db-new db-seed db-seed-demo db-seed-demo-receipts \
        seed setup logs tunnel
 
 # ── Dependencies ──────────────────────────────────────────
@@ -41,6 +41,9 @@ db-seed:
 
 db-seed-demo:
 	npx tsx supabase/seed-demo.ts
+
+db-seed-demo-receipts:
+	npx tsx supabase/seed-demo-receipts.ts
 
 # ── Shortcuts ─────────────────────────────────────────────
 seed: db-seed
