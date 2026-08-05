@@ -113,3 +113,5 @@ node dist/index.js     # o usar PM2: pm2 start dist/index.js
 ```
 
 En producción: Postgres vía `DATABASE_URL`, HTTPS para el webhook, y todas las variables de entorno en el hosting (no usar `.env`).
+
+**Importante:** correr `make db-seed-modules` (o `npx tsx supabase/seed-modules.ts`) en cada ambiente nuevo. El gating de módulos (`requireModule`) falla abierto si el plugin todavía no existe en la tabla `plugins` — sin este seed, ningún módulo queda realmente restringido.

@@ -1,5 +1,10 @@
 import "dotenv/config";
 
+// Pin the process timezone: the auto-export scheduler (services/scheduler.ts)
+// compares schedule_time/schedule_days against wall-clock Date methods, and
+// this product is Argentina-only — never rely on the deploy host's default TZ.
+process.env.TZ = process.env.TZ || "America/Argentina/Buenos_Aires";
+
 if (!process.env.SUPABASE_JWT_SECRET || process.env.SUPABASE_JWT_SECRET.length < 32) {
   console.error('FATAL: SUPABASE_JWT_SECRET must be set and at least 32 chars');
   process.exit(1);
