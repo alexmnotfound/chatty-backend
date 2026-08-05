@@ -4,9 +4,11 @@ import { supabase } from '../lib/supabase.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getCompanyId } from '../middleware/tenant.js';
 import { appendReceiptToSheet, type ReceiptRow } from '../services/sheets-exporter.js';
+import { requireModule } from '../middleware/modules.js';
 
 export const receiptsRouter = Router();
 receiptsRouter.use(requireAuth);
+receiptsRouter.use(requireModule('comprobantes'));
 
 receiptsRouter.get('/', async (req, res) => {
   const companyId = getCompanyId(req);

@@ -5,9 +5,11 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { getCompanyId } from '../middleware/tenant.js';
 import { encrypt } from '../lib/encryption.js';
 import { extractServiceAccountEmail } from '../services/sheets-exporter.js';
+import { requireModule } from '../middleware/modules.js';
 
 export const sheetsConfigRouter = Router();
 sheetsConfigRouter.use(requireAuth);
+sheetsConfigRouter.use(requireModule('sheets'));
 
 const CONFIG_COLUMNS = 'company_id, spreadsheet_id, sheet_name, auto_export, updated_at, sa_key_enc';
 

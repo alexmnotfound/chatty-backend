@@ -8,9 +8,11 @@ import { getAIReply } from '../services/ai-provider.js';
 import { compileSystemPrompt } from '../lib/prompt-compiler.js';
 import { retrieveTopK } from '../services/rag.js';
 import { BOT_TEMPLATES } from '../lib/bot-templates.js';
+import { requireModule } from '../middleware/modules.js';
 
 const router = Router();
 router.use(requireAuth);
+router.use(requireModule('bots'));
 
 // GET /api/bots — list bots for the company (no secrets)
 router.get('/', async (req, res) => {

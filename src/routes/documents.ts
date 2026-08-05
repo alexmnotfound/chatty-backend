@@ -5,9 +5,11 @@ import { getCompanyId } from '../middleware/tenant.js';
 import { supabase } from '../lib/supabase.js';
 import { decrypt } from '../lib/encryption.js';
 import { chunkText, embedTexts } from '../services/rag.js';
+import { requireModule } from '../middleware/modules.js';
 
 export const documentsRouter = Router();
 documentsRouter.use(requireAuth);
+documentsRouter.use(requireModule('bots'));
 
 const upload = multer({
   storage: multer.memoryStorage(),
