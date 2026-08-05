@@ -96,11 +96,14 @@ sheetsConfigRouter.put('/', requireRole('admin'), async (req, res) => {
     update.sa_key_enc = encrypt(parsed.data.serviceAccountJson);
   }
 
-  const { data, error } = await supabase
-    .from('sheets_config')
-    .upsert(update, { onConflict: 'company_id' })
-    .select(CONFIG_COLUMNS)
-    .maybeSingle();
+  // Plain upsert() fails here: Postgres validates NOT NULL on the candidate
+  // row before ON CONFLICT redirects to UPDATE, so omitting sa_key_enc on a
+  // schedule-only save 500s even though the existing row already has one.
+  // Branch explicitly instead.
+  const query = existing
+    ? supabase.from('sheets_config').update(update).eq('company_id', companyId)
+    : supabase.from('sheets_config').insert(update);
+  const { data, error } = await query.select(CONFIG_COLUMNS).maybeSingle();
   if (error || !data) return res.status(500).json({ error: 'No se pudo guardar la configuración' });
 
   const { sa_key_enc, ...rest } = data;

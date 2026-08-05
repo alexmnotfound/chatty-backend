@@ -1,5 +1,6 @@
 import { Router, type Request } from "express";
 import jwt from "jsonwebtoken";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -9,6 +10,17 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
   throw new Error("JWT_SECRET is not configured with a strong value");
 }
 export const authRouter = Router();
+
+// signInWithPassword() mutates the calling client's in-memory auth session,
+// which then overrides the apikey header on every subsequent request made
+// with that client. Never call it on the shared `supabase` singleton (used
+// as service-role everywhere else) — use a throwaway client scoped to this
+// one call instead.
+function authClient() {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false },
+  });
+}
 
 authRouter.get("/me", requireAuth, async (req, res) => {
   const m = (req as Request & { member: { id: string; email: string; name: string; role: string; enabled: boolean; companyId: string } }).member;
@@ -27,7 +39,7 @@ authRouter.post("/login", async (req, res) => {
   }
 
   // Authenticate via Supabase Auth
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+  const { data: authData, error: authError } = await authClient().auth.signInWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
   });
