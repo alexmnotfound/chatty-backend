@@ -11,7 +11,8 @@ export const sheetsConfigRouter = Router();
 sheetsConfigRouter.use(requireAuth);
 sheetsConfigRouter.use(requireModule('sheets'));
 
-const CONFIG_COLUMNS = 'company_id, spreadsheet_id, sheet_name, auto_export, updated_at, sa_key_enc';
+const CONFIG_COLUMNS =
+  'company_id, spreadsheet_id, sheet_name, auto_export, schedule_type, interval_hours, schedule_days, schedule_time, last_auto_export_at, updated_at, sa_key_enc';
 
 // extractServiceAccountEmail decrypts sa_key_enc and can throw (e.g. corrupted
 // ciphertext, key rotation). Its errors are already sanitized (no key material
@@ -43,6 +44,11 @@ const putSchema = z.object({
   spreadsheetId: z.string().min(1),
   sheetName: z.string().min(1),
   serviceAccountJson: z.string().min(1).optional(),
+  autoExport: z.boolean().optional(),
+  scheduleType: z.enum(['interval', 'days']).optional(),
+  intervalHours: z.number().int().min(1).max(24).optional(),
+  scheduleDays: z.array(z.number().int().min(0).max(6)).optional(),
+  scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
 });
 
 sheetsConfigRouter.put('/', requireRole('admin'), async (req, res) => {
@@ -81,6 +87,11 @@ sheetsConfigRouter.put('/', requireRole('admin'), async (req, res) => {
     sheet_name: parsed.data.sheetName,
     updated_at: new Date().toISOString(),
   };
+  if (parsed.data.autoExport !== undefined) update.auto_export = parsed.data.autoExport;
+  if (parsed.data.scheduleType !== undefined) update.schedule_type = parsed.data.scheduleType;
+  if (parsed.data.intervalHours !== undefined) update.interval_hours = parsed.data.intervalHours;
+  if (parsed.data.scheduleDays !== undefined) update.schedule_days = parsed.data.scheduleDays;
+  if (parsed.data.scheduleTime !== undefined) update.schedule_time = parsed.data.scheduleTime;
   if (parsed.data.serviceAccountJson) {
     update.sa_key_enc = encrypt(parsed.data.serviceAccountJson);
   }
