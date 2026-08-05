@@ -10,6 +10,45 @@ export const receiptsRouter = Router();
 receiptsRouter.use(requireAuth);
 receiptsRouter.use(requireModule('comprobantes'));
 
+export async function exportReceiptRow(
+  receipt: { id: string; storage_path: string; created_at: string; extracted: Record<string, { value: string | null }> },
+  sheetsConfig: { spreadsheet_id: string; sheet_name: string; sa_key_enc: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: signed } = await supabase.storage
+    .from('receipts')
+    .createSignedUrl(receipt.storage_path, 60 * 60 * 24 * 365);
+
+  const row: ReceiptRow = {
+    receivedAt: new Date(receipt.created_at).toLocaleString('es-AR'),
+    monto: receipt.extracted?.monto?.value ?? '',
+    fechaOperacion: receipt.extracted?.fecha_operacion?.value ?? '',
+    bancoOrigen: receipt.extracted?.banco_origen?.value ?? '',
+    remitente: receipt.extracted?.remitente?.value ?? '',
+    cuit: receipt.extracted?.cuit?.value ?? '',
+    cbuAlias: receipt.extracted?.cbu_alias?.value ?? '',
+    referencia: receipt.extracted?.referencia?.value ?? '',
+    concepto: receipt.extracted?.concepto?.value ?? '',
+    fileLink: signed?.signedUrl ?? '',
+  };
+
+  try {
+    await appendReceiptToSheet(
+      { spreadsheetId: sheetsConfig.spreadsheet_id, sheetName: sheetsConfig.sheet_name, saKeyEnc: sheetsConfig.sa_key_enc },
+      row,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error desconocido al exportar';
+    await supabase.from('receipts').update({ estado: 'error', export_error: message }).eq('id', receipt.id);
+    return { ok: false, error: message };
+  }
+
+  await supabase
+    .from('receipts')
+    .update({ estado: 'exportado', exported_at: new Date().toISOString(), export_error: null })
+    .eq('id', receipt.id);
+  return { ok: true };
+}
+
 receiptsRouter.get('/', async (req, res) => {
   const companyId = getCompanyId(req);
   const estado = typeof req.query.estado === 'string' ? req.query.estado : undefined;
@@ -94,40 +133,12 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     return res.status(400).json({ error: 'Configurá Google Sheets antes de exportar' });
   }
 
-  const { data: signed } = await supabase.storage
-    .from('receipts')
-    .createSignedUrl(receipt.storage_path, 60 * 60 * 24 * 365);
-
-  const row: ReceiptRow = {
-    receivedAt: new Date(receipt.created_at).toLocaleString('es-AR'),
-    monto: receipt.extracted?.monto?.value ?? '',
-    fechaOperacion: receipt.extracted?.fecha_operacion?.value ?? '',
-    bancoOrigen: receipt.extracted?.banco_origen?.value ?? '',
-    remitente: receipt.extracted?.remitente?.value ?? '',
-    cuit: receipt.extracted?.cuit?.value ?? '',
-    cbuAlias: receipt.extracted?.cbu_alias?.value ?? '',
-    referencia: receipt.extracted?.referencia?.value ?? '',
-    concepto: receipt.extracted?.concepto?.value ?? '',
-    fileLink: signed?.signedUrl ?? '',
-  };
-
-  try {
-    await appendReceiptToSheet(
-      { spreadsheetId: sheetsConfig.spreadsheet_id, sheetName: sheetsConfig.sheet_name, saKeyEnc: sheetsConfig.sa_key_enc },
-      row,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error desconocido al exportar';
-    console.error(`[receipts] Export failed for receipt ${receipt.id}:`, message);
-    await supabase.from('receipts').update({ estado: 'error', export_error: message }).eq('id', receipt.id);
+  const result = await exportReceiptRow(receipt, sheetsConfig);
+  if (!result.ok) {
+    console.error(`[receipts] Export failed for receipt ${receipt.id}:`, result.error);
     return res.status(502).json({ error: 'No se pudo exportar a Google Sheets' });
   }
 
-  const { data: updated } = await supabase
-    .from('receipts')
-    .update({ estado: 'exportado', exported_at: new Date().toISOString(), export_error: null })
-    .eq('id', receipt.id)
-    .select()
-    .maybeSingle();
+  const { data: updated } = await supabase.from('receipts').select('*').eq('id', receipt.id).maybeSingle();
   res.json(updated);
 });
