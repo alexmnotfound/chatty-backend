@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 
 const mockCreate = vi.fn();
-vi.mock('@anthropic-ai/sdk', () => ({
+vi.mock('openai', () => ({
   default: class {
-    messages = { create: mockCreate };
+    chat = { completions: { create: mockCreate } };
   },
 }));
 
@@ -12,7 +12,7 @@ import { extractReceipt } from './receipt-extractor.js';
 describe('extractReceipt', () => {
   it('parses a valid receipt extraction response', async () => {
     mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
         isReceipt: true,
         fields: {
           monto: { value: '$45.000,00', confidence: 'alta' },
@@ -24,7 +24,7 @@ describe('extractReceipt', () => {
           referencia: { value: '00923841', confidence: 'alta' },
           concepto: { value: 'Varios', confidence: 'media' },
         },
-      }) }],
+      }) } }],
     });
 
     const result = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
@@ -38,7 +38,19 @@ describe('extractReceipt', () => {
 
   it('returns isReceipt:false when the model says it is not a receipt', async () => {
     mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: JSON.stringify({ isReceipt: false }) }],
+      choices: [{ message: { content: JSON.stringify({
+        isReceipt: false,
+        fields: {
+          monto: { value: null, confidence: 'baja' },
+          fecha_operacion: { value: null, confidence: 'baja' },
+          banco_origen: { value: null, confidence: 'baja' },
+          remitente: { value: null, confidence: 'baja' },
+          cuit: { value: null, confidence: 'baja' },
+          cbu_alias: { value: null, confidence: 'baja' },
+          referencia: { value: null, confidence: 'baja' },
+          concepto: { value: null, confidence: 'baja' },
+        },
+      }) } }],
     });
 
     const result = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
@@ -46,7 +58,12 @@ describe('extractReceipt', () => {
   });
 
   it('throws on unparseable model output', async () => {
-    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'not json' }] });
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'not json' } }] });
+    await expect(extractReceipt('fake-key', 'base64data', 'image/jpeg')).rejects.toThrow();
+  });
+
+  it('throws when the response has no content', async () => {
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: {} }] });
     await expect(extractReceipt('fake-key', 'base64data', 'image/jpeg')).rejects.toThrow();
   });
 });

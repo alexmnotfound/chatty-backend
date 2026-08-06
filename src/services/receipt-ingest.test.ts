@@ -36,7 +36,7 @@ const baseParams = {
   companyId: 'company-1',
   conversationId: 'conv-1',
   whatsappToken: 'wa-token',
-  anthropicApiKey: 'anthropic-key',
+  openAiApiKey: 'openai-key',
 };
 
 describe('ingestReceiptMessage', () => {

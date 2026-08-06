@@ -23,9 +23,9 @@ export async function ingestReceiptMessage(params: {
   companyId: string;
   conversationId: string;
   whatsappToken: string;
-  anthropicApiKey: string;
+  openAiApiKey: string;
 }): Promise<{ isReceipt: boolean }> {
-  const { mediaId, messageId, companyId, conversationId, whatsappToken, anthropicApiKey } = params;
+  const { mediaId, messageId, companyId, conversationId, whatsappToken, openAiApiKey } = params;
 
   let buffer: Buffer;
   let mimeType: string;
@@ -52,7 +52,7 @@ export async function ingestReceiptMessage(params: {
 
   let extraction: Awaited<ReturnType<typeof extractReceipt>>;
   try {
-    extraction = await extractReceipt(anthropicApiKey, buffer.toString('base64'), mimeType);
+    extraction = await extractReceipt(openAiApiKey, buffer.toString('base64'), mimeType);
   } catch (err) {
     console.error('[receipt-ingest] Extraction failed', err);
     await supabase.from('receipts').insert({

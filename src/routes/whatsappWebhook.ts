@@ -241,14 +241,14 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .order("name", { ascending: true })
             .limit(1);
           const activeBotForKey = activeBotsForKey?.[0];
-          const anthropicApiKey =
-            activeBotForKey?.ai_provider === "claude" && activeBotForKey.ai_api_key_enc
+          const openAiApiKey =
+            activeBotForKey?.ai_provider === "openai" && activeBotForKey.ai_api_key_enc
               ? decrypt(activeBotForKey.ai_api_key_enc)
-              : (process.env.ANTHROPIC_API_KEY ?? "");
-          if (!anthropicApiKey) {
+              : (process.env.OPENAI_API_KEY ?? "");
+          if (!openAiApiKey) {
             console.error(
-              `[webhook] ⚠️  No Anthropic key available for company ${companyId} — receipt extraction will fail. ` +
-              `Configure a Claude bot or set ANTHROPIC_API_KEY.`
+              `[webhook] ⚠️  No OpenAI key available for company ${companyId} — receipt extraction will fail. ` +
+              `Configure an OpenAI bot or set OPENAI_API_KEY.`
             );
           }
 
@@ -258,7 +258,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             companyId,
             conversationId: conversation.id,
             whatsappToken: credentials.token,
-            anthropicApiKey,
+            openAiApiKey,
           });
 
           if (isReceipt) continue; // silent — goes to the receipts review queue, no chat reply
