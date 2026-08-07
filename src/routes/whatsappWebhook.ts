@@ -232,6 +232,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         let skipAiReply = false;
         let mediaUrl: string | null = null;
         let mediaMimeType: string | null = null;
+        let linkedReceiptId: string | null = null;
         if (msg.type === "image" || msg.type === "document") {
           if (!credentials) continue;
           const media = msg.type === "image" ? msg.image : msg.document;
@@ -261,7 +262,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
               );
             }
 
-            const { isReceipt, storagePath, mimeType: receiptMimeType } = await ingestReceiptMessage({
+            const { isReceipt, storagePath, mimeType: receiptMimeType, receiptId } = await ingestReceiptMessage({
               mediaId: media.id,
               messageId: msg.id,
               companyId,
@@ -276,6 +277,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             if (isReceipt) {
               bodyText = "[el cliente envió un comprobante de pago]";
               skipAiReply = true;
+              linkedReceiptId = receiptId ?? null;
               if (storagePath) {
                 const { data: signed } = await supabase.storage
                   .from("receipts")
@@ -305,6 +307,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             from_ai: false,
             media_url: mediaUrl,
             media_mime_type: mediaMimeType,
+            receipt_id: linkedReceiptId,
           })
           .select()
           .single();

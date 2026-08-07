@@ -39,6 +39,10 @@ export type IngestReceiptResult = {
   // show the actual image in the chat thread.
   storagePath?: string;
   mimeType?: string;
+  // Set only when a `receipts` row was actually created (i.e. not when the
+  // image turned out not to be a receipt at all) — callers use this to
+  // link the chat message straight to the review page.
+  receiptId?: string;
 };
 
 export async function ingestReceiptMessage(params: {
@@ -91,7 +95,7 @@ export async function ingestReceiptMessage(params: {
       export_error: 'No hay una API key de OpenAI configurada para esta empresa',
       ...usageColumns(null),
     });
-    return { isReceipt: true, storagePath, mimeType };
+    return { isReceipt: true, storagePath, mimeType, receiptId };
   }
 
   let extraction: Awaited<ReturnType<typeof extractReceipt>>['extraction'];
@@ -114,7 +118,7 @@ export async function ingestReceiptMessage(params: {
       extracted: EMPTY_FIELDS,
       ...usageColumns(usage),
     });
-    return { isReceipt: true, storagePath, mimeType };
+    return { isReceipt: true, storagePath, mimeType, receiptId };
   }
 
   if (!extraction.isReceipt) {
@@ -133,5 +137,5 @@ export async function ingestReceiptMessage(params: {
     ...usageColumns(usage),
   });
 
-  return { isReceipt: true, storagePath, mimeType };
+  return { isReceipt: true, storagePath, mimeType, receiptId };
 }

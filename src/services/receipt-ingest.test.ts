@@ -83,6 +83,7 @@ describe('ingestReceiptMessage', () => {
       isReceipt: true,
       storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
       mimeType: 'image/jpeg',
+      receiptId: expect.any(String),
     });
 
     expect(mockStorageFrom).toHaveBeenCalledWith('receipts');
@@ -144,6 +145,7 @@ describe('ingestReceiptMessage', () => {
       isReceipt: true,
       storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
       mimeType: 'image/jpeg',
+      receiptId: expect.any(String),
     });
     expect(mockFrom).toHaveBeenCalledWith('receipts');
     expect(mockInsert).toHaveBeenCalledWith(
@@ -218,6 +220,7 @@ describe('ingestReceiptMessage', () => {
       isReceipt: true,
       storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
       mimeType: 'image/jpeg',
+      receiptId: expect.any(String),
     });
     expect(mockExtract).not.toHaveBeenCalled();
     expect(mockInsert).toHaveBeenCalledWith(
