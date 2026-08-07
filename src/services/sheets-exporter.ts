@@ -5,12 +5,16 @@ export type ReceiptRow = {
   receivedAt: string;
   monto: string;
   fechaOperacion: string;
-  bancoOrigen: string;
-  remitente: string;
-  cuit: string;
-  cbuAlias: string;
-  referencia: string;
   concepto: string;
+  referencia: string;
+  coelsaId: string;
+  remitente: string;
+  cuitRemitente: string;
+  bancoRemitente: string;
+  destinatario: string;
+  cuitDestinatario: string;
+  cbuAliasDestino: string;
+  bancoDestinatario: string;
   fileLink: string;
 };
 
@@ -46,12 +50,14 @@ export async function appendReceiptToSheet(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `${config.sheetName}!A:J`,
+    range: `${config.sheetName}!A:N`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
-        row.receivedAt, row.monto, row.fechaOperacion, row.bancoOrigen,
-        row.remitente, row.cuit, row.cbuAlias, row.referencia, row.concepto, row.fileLink,
+        row.receivedAt, row.monto, row.fechaOperacion, row.concepto, row.referencia, row.coelsaId,
+        row.remitente, row.cuitRemitente, row.bancoRemitente,
+        row.destinatario, row.cuitDestinatario, row.cbuAliasDestino, row.bancoDestinatario,
+        row.fileLink,
       ]],
     },
   });

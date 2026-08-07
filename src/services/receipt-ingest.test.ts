@@ -163,12 +163,16 @@ describe('ingestReceiptMessage', () => {
     expect(insertArg.extracted).toEqual({
       monto: { value: null, confidence: 'baja' },
       fecha_operacion: { value: null, confidence: 'baja' },
-      banco_origen: { value: null, confidence: 'baja' },
-      remitente: { value: null, confidence: 'baja' },
-      cuit: { value: null, confidence: 'baja' },
-      cbu_alias: { value: null, confidence: 'baja' },
-      referencia: { value: null, confidence: 'baja' },
       concepto: { value: null, confidence: 'baja' },
+      referencia: { value: null, confidence: 'baja' },
+      coelsa_id: { value: null, confidence: 'baja' },
+      remitente: { value: null, confidence: 'baja' },
+      cuit_remitente: { value: null, confidence: 'baja' },
+      banco_remitente: { value: null, confidence: 'baja' },
+      destinatario: { value: null, confidence: 'baja' },
+      cuit_destinatario: { value: null, confidence: 'baja' },
+      cbu_alias_destino: { value: null, confidence: 'baja' },
+      banco_destinatario: { value: null, confidence: 'baja' },
     });
   });
 

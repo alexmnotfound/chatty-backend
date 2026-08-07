@@ -3,8 +3,13 @@ import { supabase } from '../lib/supabase.js';
 import { exportReceiptRow } from '../routes/receipts.js';
 import type { ReceiptFields } from './receipt-extractor.js';
 
+// coelsa_id excluded: legitimately absent on most receipts, requiring
+// "alta" on it would wrongly block otherwise-complete receipts from
+// auto-export. Same list as Comprobantes.tsx's manual bulk-export filter.
 const HIGH_CONFIDENCE_FIELDS: Array<keyof ReceiptFields> = [
-  'monto', 'fecha_operacion', 'banco_origen', 'remitente', 'cuit', 'cbu_alias', 'referencia', 'concepto',
+  'monto', 'fecha_operacion', 'concepto', 'referencia',
+  'remitente', 'cuit_remitente', 'banco_remitente',
+  'destinatario', 'cuit_destinatario', 'cbu_alias_destino', 'banco_destinatario',
 ];
 
 function isHighConfidence(extracted: ReceiptFields): boolean {
