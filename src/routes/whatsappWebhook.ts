@@ -3,12 +3,12 @@ import crypto, { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { sendWhatsAppText, getWhatsAppCredentials } from "../services/whatsapp.js";
 import { buildHistoryFromMessages } from "../services/ai-provider.js";
-import { decrypt } from "../lib/encryption.js";
 import { compileSystemPrompt } from "../lib/prompt-compiler.js";
 import { retrieveTopK } from "../services/rag.js";
 import { getAIReply } from "../services/ai-provider.js";
 import { logActivity } from "../lib/activityLogger.js";
 import { ingestReceiptMessage } from "../services/receipt-ingest.js";
+import { resolveCompanyApiKey } from "../lib/ai-keys.js";
 
 export const whatsappWebhookRouter = Router();
 
@@ -240,15 +240,11 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .eq("is_active", true)
             .order("name", { ascending: true })
             .limit(1);
-          const activeBotForKey = activeBotsForKey?.[0];
-          const openAiApiKey =
-            activeBotForKey?.ai_provider === "openai" && activeBotForKey.ai_api_key_enc
-              ? decrypt(activeBotForKey.ai_api_key_enc)
-              : (process.env.OPENAI_API_KEY ?? "");
+          const openAiApiKey = await resolveCompanyApiKey(companyId, activeBotsForKey?.[0], "openai");
           if (!openAiApiKey) {
             console.error(
-              `[webhook] ⚠️  No OpenAI key available for company ${companyId} — receipt extraction will fail. ` +
-              `Configure an OpenAI bot or set OPENAI_API_KEY.`
+              `[webhook] ⚠️  No company-owned OpenAI key configured for ${companyId} — receipt extraction will fail. ` +
+              `Configure it on a bot or in Ajustes (no platform key is ever used as a fallback).`
             );
           }
 
@@ -378,10 +374,20 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .select("company_name, company_hours, company_address, company_services, company_contact")
             .eq("company_id", companyId)
             .maybeSingle();
-          const rawKey = activeBot.ai_api_key_enc
-            ? decrypt(activeBot.ai_api_key_enc)
-            : (process.env.OPENAI_API_KEY ?? '');
-          const ragContext = await retrieveTopK((activeBot as any).id, bodyText, rawKey).catch(() => []);
+          const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
+          const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
+          // Embeddings for RAG are always OpenAI, independent of the chat
+          // provider — resolve it separately from the chat completion key.
+          const ragApiKey = await resolveCompanyApiKey(companyId, activeBot, 'openai');
+          const rawKey = await resolveCompanyApiKey(companyId, activeBot, provider);
+          if (!rawKey) {
+            console.error(
+              `[webhook] ⚠️  No company-owned ${provider} key configured for ${companyId} — skipping AI reply. ` +
+              `Configure it on the bot or in Ajustes (no platform key is ever used as a fallback).`
+            );
+            continue;
+          }
+          const ragContext = ragApiKey ? await retrieveTopK((activeBot as any).id, bodyText, ragApiKey).catch(() => []) : [];
           const systemPrompt = compileSystemPrompt({
             ...activeBot,
             ragContext,
@@ -394,8 +400,6 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             services: companyCfg?.company_services,
             contact: companyCfg?.company_contact,
           });
-          const provider = ((activeBot as any).ai_provider ?? 'openai') as 'openai' | 'claude';
-          const model = (activeBot as any).ai_model ?? 'gpt-4o-mini';
           console.log(`[webhook] calling AI, provider=${provider}, model=${model}, history length: ${history.length}`);
           console.log(`[webhook] system prompt:\n---\n${systemPrompt}\n---`);
           const aiResponse = await getAIReply(provider, rawKey, model, systemPrompt, history, [HANDOFF_TOOL]);

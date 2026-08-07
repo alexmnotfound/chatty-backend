@@ -15,6 +15,21 @@ export type ReceiptFields = {
 
 export type ReceiptExtraction = { isReceipt: false } | { isReceipt: true; fields: ReceiptFields };
 
+export type ExtractionUsage = { model: string; tokensIn: number; tokensOut: number };
+export type ExtractReceiptResult = { extraction: ReceiptExtraction; usage: ExtractionUsage };
+
+// A malformed/empty model response still consumes billable tokens — carry
+// usage on the error so the caller can still record cost for a failed
+// extraction, not just successful ones.
+export class ExtractionError extends Error {
+  usage: ExtractionUsage;
+  constructor(message: string, usage: ExtractionUsage) {
+    super(message);
+    this.name = 'ExtractionError';
+    this.usage = usage;
+  }
+}
+
 const EXTRACTION_PROMPT = `Analizá el archivo adjunto. Es un comprobante de pago/transferencia bancaria argentino?
 
 Si NO es un comprobante de pago, respondé con isReceipt: false.
@@ -68,11 +83,13 @@ async function pdfFirstPageToPngBase64(fileBase64: string): Promise<string> {
   return firstPage.toString('base64');
 }
 
+const EXTRACTION_MODEL = 'gpt-4o';
+
 export async function extractReceipt(
   apiKey: string,
   fileBase64: string,
   mimeType: string,
-): Promise<ReceiptExtraction> {
+): Promise<ExtractReceiptResult> {
   const client = new OpenAI({ apiKey });
 
   const isPdf = mimeType === 'application/pdf';
@@ -80,7 +97,7 @@ export async function extractReceipt(
   const imageMimeType = isPdf ? 'image/png' : mimeType;
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: EXTRACTION_MODEL,
     messages: [{
       role: 'user',
       content: [
@@ -94,14 +111,24 @@ export async function extractReceipt(
     },
   });
 
+  const usage: ExtractionUsage = {
+    // Store the requested model string (matches cost-calculator's rate table
+    // keys), not response.model — OpenAI returns a versioned resolved id
+    // (e.g. "gpt-4o-2024-08-06") that wouldn't match and would silently
+    // cost 0.
+    model: EXTRACTION_MODEL,
+    tokensIn: response.usage?.prompt_tokens ?? 0,
+    tokensOut: response.usage?.completion_tokens ?? 0,
+  };
+
   const text = response.choices[0]?.message?.content;
-  if (!text) throw new Error('No content in extraction response');
+  if (!text) throw new ExtractionError('No content in extraction response', usage);
 
   let parsed: ReceiptExtraction;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error(`Could not parse extraction response as JSON: ${text}`);
+    throw new ExtractionError(`Could not parse extraction response as JSON: ${text}`, usage);
   }
-  return parsed;
+  return { extraction: parsed, usage };
 }

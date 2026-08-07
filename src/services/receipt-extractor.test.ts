@@ -7,11 +7,12 @@ vi.mock('openai', () => ({
   },
 }));
 
-import { extractReceipt } from './receipt-extractor.js';
+import { extractReceipt, ExtractionError } from './receipt-extractor.js';
 
 describe('extractReceipt', () => {
-  it('parses a valid receipt extraction response', async () => {
+  it('parses a valid receipt extraction response and returns usage', async () => {
     mockCreate.mockResolvedValueOnce({
+      usage: { prompt_tokens: 1200, completion_tokens: 80 },
       choices: [{ message: { content: JSON.stringify({
         isReceipt: true,
         fields: {
@@ -27,17 +28,19 @@ describe('extractReceipt', () => {
       }) } }],
     });
 
-    const result = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
+    const { extraction, usage } = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
 
-    expect(result.isReceipt).toBe(true);
-    if (result.isReceipt) {
-      expect(result.fields.monto.value).toBe('$45.000,00');
-      expect(result.fields.monto.confidence).toBe('alta');
+    expect(extraction.isReceipt).toBe(true);
+    if (extraction.isReceipt) {
+      expect(extraction.fields.monto.value).toBe('$45.000,00');
+      expect(extraction.fields.monto.confidence).toBe('alta');
     }
+    expect(usage).toEqual({ model: 'gpt-4o', tokensIn: 1200, tokensOut: 80 });
   });
 
   it('returns isReceipt:false when the model says it is not a receipt', async () => {
     mockCreate.mockResolvedValueOnce({
+      usage: { prompt_tokens: 900, completion_tokens: 10 },
       choices: [{ message: { content: JSON.stringify({
         isReceipt: false,
         fields: {
@@ -53,17 +56,27 @@ describe('extractReceipt', () => {
       }) } }],
     });
 
-    const result = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
-    expect(result.isReceipt).toBe(false);
+    const { extraction } = await extractReceipt('fake-key', 'base64data', 'image/jpeg');
+    expect(extraction.isReceipt).toBe(false);
   });
 
-  it('throws on unparseable model output', async () => {
-    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'not json' } }] });
-    await expect(extractReceipt('fake-key', 'base64data', 'image/jpeg')).rejects.toThrow();
+  it('throws ExtractionError (carrying usage) on unparseable model output', async () => {
+    mockCreate.mockResolvedValueOnce({
+      usage: { prompt_tokens: 500, completion_tokens: 5 },
+      choices: [{ message: { content: 'not json' } }],
+    });
+    let caught: unknown;
+    try {
+      await extractReceipt('fake-key', 'base64data', 'image/jpeg');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ExtractionError);
+    expect((caught as InstanceType<typeof ExtractionError>).usage).toEqual({ model: 'gpt-4o', tokensIn: 500, tokensOut: 5 });
   });
 
-  it('throws when the response has no content', async () => {
-    mockCreate.mockResolvedValueOnce({ choices: [{ message: {} }] });
-    await expect(extractReceipt('fake-key', 'base64data', 'image/jpeg')).rejects.toThrow();
+  it('throws ExtractionError when the response has no content', async () => {
+    mockCreate.mockResolvedValueOnce({ usage: { prompt_tokens: 300, completion_tokens: 0 }, choices: [{ message: {} }] });
+    await expect(extractReceipt('fake-key', 'base64data', 'image/jpeg')).rejects.toThrow(ExtractionError);
   });
 });

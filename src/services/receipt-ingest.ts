@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { supabase } from '../lib/supabase.js';
 import { downloadWhatsAppMedia } from './media-download.js';
-import { extractReceipt, type ReceiptFields } from './receipt-extractor.js';
+import { extractReceipt, ExtractionError, type ExtractionUsage, type ReceiptFields } from './receipt-extractor.js';
+import { calculateCost } from '../lib/cost-calculator.js';
 
 // Frontend renders every ReceiptFields key unconditionally (e.g.
 // extracted.remitente.value) — an error-state row must still carry this
@@ -17,13 +18,23 @@ const EMPTY_FIELDS: ReceiptFields = {
   concepto: { value: null, confidence: 'baja' },
 };
 
+function usageColumns(usage: ExtractionUsage | null) {
+  if (!usage) return { ai_model: null, tokens_in: null, tokens_out: null, cost_usd: null };
+  return {
+    ai_model: usage.model,
+    tokens_in: usage.tokensIn,
+    tokens_out: usage.tokensOut,
+    cost_usd: calculateCost(usage.model, usage.tokensIn, usage.tokensOut),
+  };
+}
+
 export async function ingestReceiptMessage(params: {
   mediaId: string;
   messageId: string;
   companyId: string;
   conversationId: string;
   whatsappToken: string;
-  openAiApiKey: string;
+  openAiApiKey: string | null;
 }): Promise<{ isReceipt: boolean }> {
   const { mediaId, messageId, companyId, conversationId, whatsappToken, openAiApiKey } = params;
 
@@ -50,11 +61,11 @@ export async function ingestReceiptMessage(params: {
     return { isReceipt: true };
   }
 
-  let extraction: Awaited<ReturnType<typeof extractReceipt>>;
-  try {
-    extraction = await extractReceipt(openAiApiKey, buffer.toString('base64'), mimeType);
-  } catch (err) {
-    console.error('[receipt-ingest] Extraction failed', err);
+  if (!openAiApiKey) {
+    // No company-owned key configured — never fall back to a platform key,
+    // extraction cost is always the company's own. Fail visibly instead of
+    // spending a round trip we know will 401.
+    console.error(`[receipt-ingest] No company OpenAI key configured for ${companyId} — skipping extraction`);
     await supabase.from('receipts').insert({
       id: receiptId,
       company_id: companyId,
@@ -64,6 +75,31 @@ export async function ingestReceiptMessage(params: {
       mime_type: mimeType,
       estado: 'error',
       extracted: EMPTY_FIELDS,
+      export_error: 'No hay una API key de OpenAI configurada para esta empresa',
+      ...usageColumns(null),
+    });
+    return { isReceipt: true };
+  }
+
+  let extraction: Awaited<ReturnType<typeof extractReceipt>>['extraction'];
+  let usage: ExtractionUsage | null = null;
+  try {
+    const result = await extractReceipt(openAiApiKey, buffer.toString('base64'), mimeType);
+    extraction = result.extraction;
+    usage = result.usage;
+  } catch (err) {
+    console.error('[receipt-ingest] Extraction failed', err);
+    if (err instanceof ExtractionError) usage = err.usage;
+    await supabase.from('receipts').insert({
+      id: receiptId,
+      company_id: companyId,
+      conversation_id: conversationId,
+      message_id: messageId,
+      storage_path: storagePath,
+      mime_type: mimeType,
+      estado: 'error',
+      extracted: EMPTY_FIELDS,
+      ...usageColumns(usage),
     });
     return { isReceipt: true };
   }
@@ -81,6 +117,7 @@ export async function ingestReceiptMessage(params: {
     mime_type: mimeType,
     estado: 'pendiente',
     extracted: extraction.fields,
+    ...usageColumns(usage),
   });
 
   return { isReceipt: true };
