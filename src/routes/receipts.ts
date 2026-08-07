@@ -112,8 +112,12 @@ receiptsRouter.patch('/:id', async (req, res) => {
   res.json(data);
 });
 
+const exportBodySchema = z.object({ force: z.boolean().optional() });
+
 receiptsRouter.post('/:id/export', async (req, res) => {
   const companyId = getCompanyId(req);
+  const parsed = exportBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const { data: receipt, error: receiptErr } = await supabase
     .from('receipts')
@@ -122,7 +126,9 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     .eq('company_id', companyId)
     .maybeSingle();
   if (receiptErr || !receipt) return res.status(404).json({ error: 'No encontrado' });
-  if (receipt.estado === 'exportado') return res.json(receipt);
+  // force=true re-appends a new row for testing/reconciliation — deliberately
+  // not idempotent in that case, unlike the default path.
+  if (receipt.estado === 'exportado' && !parsed.data.force) return res.json(receipt);
 
   const { data: sheetsConfig, error: configErr } = await supabase
     .from('sheets_config')
