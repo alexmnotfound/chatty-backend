@@ -230,6 +230,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
         let bodyText: string;
         let skipAiReply = false;
+        let mediaUrl: string | null = null;
+        let mediaMimeType: string | null = null;
         if (msg.type === "image" || msg.type === "document") {
           if (!credentials) continue;
           const media = msg.type === "image" ? msg.image : msg.document;
@@ -259,7 +261,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
               );
             }
 
-            const { isReceipt } = await ingestReceiptMessage({
+            const { isReceipt, storagePath, mimeType: receiptMimeType } = await ingestReceiptMessage({
               mediaId: media.id,
               messageId: msg.id,
               companyId,
@@ -274,6 +276,13 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             if (isReceipt) {
               bodyText = "[el cliente envió un comprobante de pago]";
               skipAiReply = true;
+              if (storagePath) {
+                const { data: signed } = await supabase.storage
+                  .from("receipts")
+                  .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+                mediaUrl = signed?.signedUrl ?? null;
+                mediaMimeType = receiptMimeType ?? null;
+              }
             } else {
               bodyText = "[el cliente envió una imagen]";
             }
@@ -294,6 +303,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             wa_message_id: msg.id,
             body: bodyText,
             from_ai: false,
+            media_url: mediaUrl,
+            media_mime_type: mediaMimeType,
           })
           .select()
           .single();

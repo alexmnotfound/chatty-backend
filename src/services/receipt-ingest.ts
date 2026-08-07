@@ -28,6 +28,15 @@ function usageColumns(usage: ExtractionUsage | null) {
   };
 }
 
+export type IngestReceiptResult = {
+  isReceipt: boolean;
+  // Set whenever the file made it to storage, regardless of what happened
+  // after (missing key, extraction error, success) — callers use this to
+  // show the actual image in the chat thread.
+  storagePath?: string;
+  mimeType?: string;
+};
+
 export async function ingestReceiptMessage(params: {
   mediaId: string;
   messageId: string;
@@ -35,7 +44,7 @@ export async function ingestReceiptMessage(params: {
   conversationId: string;
   whatsappToken: string;
   openAiApiKey: string | null;
-}): Promise<{ isReceipt: boolean }> {
+}): Promise<IngestReceiptResult> {
   const { mediaId, messageId, companyId, conversationId, whatsappToken, openAiApiKey } = params;
 
   let buffer: Buffer;
@@ -78,7 +87,7 @@ export async function ingestReceiptMessage(params: {
       export_error: 'No hay una API key de OpenAI configurada para esta empresa',
       ...usageColumns(null),
     });
-    return { isReceipt: true };
+    return { isReceipt: true, storagePath, mimeType };
   }
 
   let extraction: Awaited<ReturnType<typeof extractReceipt>>['extraction'];
@@ -101,11 +110,11 @@ export async function ingestReceiptMessage(params: {
       extracted: EMPTY_FIELDS,
       ...usageColumns(usage),
     });
-    return { isReceipt: true };
+    return { isReceipt: true, storagePath, mimeType };
   }
 
   if (!extraction.isReceipt) {
-    return { isReceipt: false };
+    return { isReceipt: false, storagePath, mimeType };
   }
 
   await supabase.from('receipts').insert({
@@ -120,5 +129,5 @@ export async function ingestReceiptMessage(params: {
     ...usageColumns(usage),
   });
 
-  return { isReceipt: true };
+  return { isReceipt: true, storagePath, mimeType };
 }

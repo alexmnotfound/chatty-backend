@@ -79,7 +79,11 @@ describe('ingestReceiptMessage', () => {
 
     const result = await ingestReceiptMessage(baseParams);
 
-    expect(result).toEqual({ isReceipt: true });
+    expect(result).toEqual({
+      isReceipt: true,
+      storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
+      mimeType: 'image/jpeg',
+    });
 
     expect(mockStorageFrom).toHaveBeenCalledWith('receipts');
     expect(mockUpload).toHaveBeenCalledWith(
@@ -116,7 +120,11 @@ describe('ingestReceiptMessage', () => {
 
     const result = await ingestReceiptMessage(baseParams);
 
-    expect(result).toEqual({ isReceipt: false });
+    expect(result).toEqual({
+      isReceipt: false,
+      storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
+      mimeType: 'image/jpeg',
+    });
     expect(mockFrom).not.toHaveBeenCalled();
     expect(mockInsert).not.toHaveBeenCalled();
   });
@@ -132,7 +140,11 @@ describe('ingestReceiptMessage', () => {
 
     const result = await ingestReceiptMessage(baseParams);
 
-    expect(result).toEqual({ isReceipt: true });
+    expect(result).toEqual({
+      isReceipt: true,
+      storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
+      mimeType: 'image/jpeg',
+    });
     expect(mockFrom).toHaveBeenCalledWith('receipts');
     expect(mockInsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -198,7 +210,11 @@ describe('ingestReceiptMessage', () => {
 
     const result = await ingestReceiptMessage({ ...baseParams, openAiApiKey: null });
 
-    expect(result).toEqual({ isReceipt: true });
+    expect(result).toEqual({
+      isReceipt: true,
+      storagePath: expect.stringMatching(/^company-1\/.+\.jpg$/),
+      mimeType: 'image/jpeg',
+    });
     expect(mockExtract).not.toHaveBeenCalled();
     expect(mockInsert).toHaveBeenCalledWith(
       expect.objectContaining({
