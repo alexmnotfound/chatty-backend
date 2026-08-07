@@ -9,6 +9,7 @@ import { getAIReply } from "../services/ai-provider.js";
 import { logActivity } from "../lib/activityLogger.js";
 import { ingestReceiptMessage } from "../services/receipt-ingest.js";
 import { resolveCompanyApiKey } from "../lib/ai-keys.js";
+import { isModuleEnabled } from "../middleware/modules.js";
 
 export const whatsappWebhookRouter = Router();
 
@@ -228,38 +229,55 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         if (!conversation) continue;
 
         let bodyText: string;
+        let skipAiReply = false;
         if (msg.type === "image" || msg.type === "document") {
           if (!credentials) continue;
           const media = msg.type === "image" ? msg.image : msg.document;
           if (!media?.id) continue;
 
-          const { data: activeBotsForKey } = await supabase
-            .from("bots")
-            .select("ai_api_key_enc, ai_provider")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .order("name", { ascending: true })
-            .limit(1);
-          const openAiApiKey = await resolveCompanyApiKey(companyId, activeBotsForKey?.[0], "openai");
-          if (!openAiApiKey) {
-            console.error(
-              `[webhook] ⚠️  No company-owned OpenAI key configured for ${companyId} — receipt extraction will fail. ` +
-              `Configure it on a bot or in Ajustes (no platform key is ever used as a fallback).`
-            );
+          const comprobantesEnabled = await isModuleEnabled(companyId, "comprobantes");
+
+          if (!comprobantesEnabled) {
+            // No comprobantes module: never spend a vision call on this image,
+            // just show it in the chat like any other message and let the
+            // bot reply normally (its own prompt can explain it doesn't
+            // process images, if configured to).
+            bodyText = "[el cliente envió una imagen]";
+          } else {
+            const { data: activeBotsForKey } = await supabase
+              .from("bots")
+              .select("ai_api_key_enc, ai_provider")
+              .eq("company_id", companyId)
+              .eq("is_active", true)
+              .order("name", { ascending: true })
+              .limit(1);
+            const openAiApiKey = await resolveCompanyApiKey(companyId, activeBotsForKey?.[0], "openai");
+            if (!openAiApiKey) {
+              console.error(
+                `[webhook] ⚠️  No company-owned OpenAI key configured for ${companyId} — receipt extraction will fail. ` +
+                `Configure it on a bot or in Ajustes (no platform key is ever used as a fallback).`
+              );
+            }
+
+            const { isReceipt } = await ingestReceiptMessage({
+              mediaId: media.id,
+              messageId: msg.id,
+              companyId,
+              conversationId: conversation.id,
+              whatsappToken: credentials.token,
+              openAiApiKey,
+            });
+
+            // isReceipt is also true when extraction errored (e.g. no
+            // credits) — still show it in chat, still stay silent, the
+            // failure is visible to the team in the Comprobantes bandeja.
+            if (isReceipt) {
+              bodyText = "[el cliente envió un comprobante de pago]";
+              skipAiReply = true;
+            } else {
+              bodyText = "[el cliente envió una imagen]";
+            }
           }
-
-          const { isReceipt } = await ingestReceiptMessage({
-            mediaId: media.id,
-            messageId: msg.id,
-            companyId,
-            conversationId: conversation.id,
-            whatsappToken: credentials.token,
-            openAiApiKey,
-          });
-
-          if (isReceipt) continue; // silent — goes to the receipts review queue, no chat reply
-
-          bodyText = "[el cliente envió una imagen]";
         } else if (msg.text?.body) {
           bodyText = msg.text.body;
         } else {
@@ -324,6 +342,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
             .eq("id", conversation.id);
           conversation = { ...conversation, status: "ai" };
         }
+
+        if (skipAiReply) continue; // message is visible in the thread; bot stays silent on receipts
 
         // Find active bot: prefer one linked to this phone number, fallback to any active bot
         const { data: linkedBot } = await supabase

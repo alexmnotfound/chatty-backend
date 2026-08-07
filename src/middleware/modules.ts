@@ -26,6 +26,16 @@ export function bustModuleCache(companyId: string) {
   moduleCache.delete(companyId);
 }
 
+// Same fail-open-if-unseeded / fail-closed-once-seeded policy as
+// requireModule, exposed as a plain check for call sites that aren't behind
+// Express middleware (e.g. the WhatsApp webhook's inbound message handler).
+export async function isModuleEnabled(companyId: string, slug: string): Promise<boolean> {
+  const { data: plugin } = await supabase.from('plugins').select('id').eq('slug', slug).maybeSingle();
+  if (!plugin) return true;
+  const enabled = await getEnabledSlugs(companyId);
+  return enabled.has(slug);
+}
+
 // Fail-open if the module/plugin itself hasn't been seeded yet (e.g. before
 // Task 3's seed script has run) — the intent is per-company gating, not to
 // lock everyone out of an unconfigured environment. Fail-closed (403) once
