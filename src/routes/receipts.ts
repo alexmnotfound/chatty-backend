@@ -262,6 +262,20 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     if (!op || op.estado !== 'pendiente') {
       return res.status(409).json({ error: 'Esta operación ya no está disponible' });
     }
+
+    // A receipt already backing a vinculada operación should never be
+    // silently attached to a second one — that would double-count the same
+    // payment across two arbitraje entries. No legitimate reexport flow
+    // needs this, so it's a hard block, not a force-bypassable one.
+    const { data: existingLink } = await supabase
+      .from('operations')
+      .select('id')
+      .eq('receipt_id', receipt.id)
+      .eq('estado', 'vinculada')
+      .maybeSingle();
+    if (existingLink) {
+      return res.status(409).json({ error: 'Este comprobante ya está vinculado a otra operación' });
+    }
   }
 
   const result = await exportReceiptRow(receipt, sheetsConfig, companyId, parsed.data.operationLink, member?.id);
