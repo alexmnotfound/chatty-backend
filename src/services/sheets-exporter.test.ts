@@ -9,7 +9,7 @@ vi.mock('googleapis', () => ({
 }));
 vi.mock('../lib/encryption.js', () => ({ decrypt: (v: string) => v }));
 
-import { appendReceiptToSheet, extractServiceAccountEmail } from './sheets-exporter.js';
+import { appendReceiptToSheet, appendOperationToSheet, extractServiceAccountEmail } from './sheets-exporter.js';
 
 describe('appendReceiptToSheet', () => {
   it('appends a row with the fixed column order', async () => {
@@ -43,6 +43,38 @@ describe('appendReceiptToSheet', () => {
           'Valeria Torres', '27-31847265-4', 'Banco Galicia',
           'Gamas SRL', '30-71234567-8', '0170099340000012345678', 'Banco Coinag',
           'https://example.com/file.pdf',
+        ]],
+      },
+    }));
+  });
+});
+
+describe('appendOperationToSheet', () => {
+  it('appends a row with the fixed column order', async () => {
+    await appendOperationToSheet(
+      { spreadsheetId: 'sheet-123', sheetName: 'Operaciones', saKeyEnc: JSON.stringify({ client_email: 'sa@x.iam.gserviceaccount.com', private_key: 'k' }) },
+      {
+        fecha: '07/08/2026 10:14',
+        cliente: 'Valeria Torres',
+        operador: 'Emilia',
+        pesosCliente: '850000',
+        tcCliente: '1185',
+        usdCliente: '717.30',
+        operador2: 'Tomás',
+        pesosProveedor: '848500',
+        tcProveedor: '1172',
+        montoFinal: '723.89',
+      },
+    );
+
+    expect(mockAppend).toHaveBeenCalledWith(expect.objectContaining({
+      spreadsheetId: 'sheet-123',
+      range: 'Operaciones!A:J',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[
+          '07/08/2026 10:14', 'Valeria Torres', 'Emilia', '850000', '1185', '717.30',
+          'Tomás', '848500', '1172', '723.89',
         ]],
       },
     }));

@@ -18,6 +18,19 @@ export type ReceiptRow = {
   fileLink: string;
 };
 
+export type OperationRow = {
+  fecha: string;
+  cliente: string;
+  operador: string;
+  pesosCliente: string;
+  tcCliente: string;
+  usdCliente: string;
+  operador2: string;
+  pesosProveedor: string;
+  tcProveedor: string;
+  montoFinal: string;
+};
+
 type ServiceAccountKey = { client_email: string; [key: string]: unknown };
 
 // JSON.parse's SyntaxError embeds a snippet of the string it failed to parse —
@@ -58,6 +71,30 @@ export async function appendReceiptToSheet(
         row.remitente, row.cuitRemitente, row.bancoRemitente,
         row.destinatario, row.cuitDestinatario, row.cbuAliasDestino, row.bancoDestinatario,
         row.fileLink,
+      ]],
+    },
+  });
+}
+
+export async function appendOperationToSheet(
+  config: { spreadsheetId: string; sheetName: string; saKeyEnc: string },
+  row: OperationRow,
+): Promise<void> {
+  const saKey = parseServiceAccountKey(config.saKeyEnc);
+  const auth = new google.auth.GoogleAuth({
+    credentials: saKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.sheetName}!A:J`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[
+        row.fecha, row.cliente, row.operador, row.pesosCliente, row.tcCliente, row.usdCliente,
+        row.operador2, row.pesosProveedor, row.tcProveedor, row.montoFinal,
       ]],
     },
   });
