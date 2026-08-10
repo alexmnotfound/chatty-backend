@@ -62,7 +62,7 @@ export async function runAutoExportForCompany(companyId: string): Promise<void> 
 
   for (const receipt of receipts ?? []) {
     if (!isHighConfidence(receipt.extracted)) continue;
-    await exportReceiptRow(receipt, config);
+    await exportReceiptRow(receipt, config, companyId);
   }
 
   await supabase.from('sheets_config').update({ last_auto_export_at: new Date().toISOString() }).eq('company_id', companyId);
