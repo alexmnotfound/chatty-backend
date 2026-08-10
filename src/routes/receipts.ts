@@ -62,7 +62,14 @@ export async function exportReceiptRow(
     .eq('id', receipt.id);
 
   if (operationLink) {
-    await linkOperation(receipt, operationLink, sheetsConfig, companyId, operador2Id);
+    // The comprobante above is already validly exported — a thrown error
+    // here (network/transport failure, not one of linkOperation's own
+    // handled `return` paths) must never turn into a failed export response.
+    try {
+      await linkOperation(receipt, operationLink, sheetsConfig, companyId, operador2Id);
+    } catch (err) {
+      console.error(`[receipts] Unexpected error linking operation ${operationLink.operationId}:`, err);
+    }
   }
 
   return { ok: true };
