@@ -1,8 +1,8 @@
 import "dotenv/config";
 
-// Pin the process timezone: the auto-export scheduler (services/scheduler.ts)
-// compares schedule_time/schedule_days against wall-clock Date methods, and
-// this product is Argentina-only — never rely on the deploy host's default TZ.
+// Pin the process timezone: receipt/operation timestamps use wall-clock Date
+// methods and this product is Argentina-only — never rely on the deploy
+// host's default TZ.
 process.env.TZ = process.env.TZ || "America/Argentina/Buenos_Aires";
 
 if (!process.env.SUPABASE_JWT_SECRET || process.env.SUPABASE_JWT_SECRET.length < 32) {
@@ -47,7 +47,6 @@ import { receiptsRouter } from "./routes/receipts.js";
 import { operationsRouter } from "./routes/operations.js";
 import { sheetsConfigRouter } from "./routes/sheetsConfig.js";
 import { modulesRouter } from "./routes/modules.js";
-import { initScheduler } from "./services/scheduler.js";
 
 const app = express();
 app.set("trust proxy", 1); // needed when behind ngrok/reverse proxy (rate-limit uses X-Forwarded-For)
@@ -117,8 +116,6 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (res.headersSent) return;
   res.status(500).json({ error: "Error interno del servidor" });
 });
-
-initScheduler();
 
 const PORT = process.env.PORT ?? 3000;
 app.listen(PORT, () => {
