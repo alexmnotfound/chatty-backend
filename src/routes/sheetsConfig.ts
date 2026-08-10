@@ -12,7 +12,7 @@ sheetsConfigRouter.use(requireAuth);
 sheetsConfigRouter.use(requireModule('sheets'));
 
 const CONFIG_COLUMNS =
-  'company_id, spreadsheet_id, sheet_name, auto_export, schedule_type, interval_hours, schedule_days, schedule_time, last_auto_export_at, updated_at, sa_key_enc';
+  'company_id, spreadsheet_id, sheet_name, operations_sheet_name, auto_export, schedule_type, interval_hours, schedule_days, schedule_time, last_auto_export_at, updated_at, sa_key_enc';
 
 // extractServiceAccountEmail decrypts sa_key_enc and can throw (e.g. corrupted
 // ciphertext, key rotation). Its errors are already sanitized (no key material
@@ -43,6 +43,7 @@ sheetsConfigRouter.get('/', async (req, res) => {
 const putSchema = z.object({
   spreadsheetId: z.string().min(1),
   sheetName: z.string().min(1),
+  operationsSheetName: z.string().min(1).optional(),
   serviceAccountJson: z.string().min(1).optional(),
   autoExport: z.boolean().optional(),
   scheduleType: z.enum(['interval', 'days']).optional(),
@@ -92,6 +93,7 @@ sheetsConfigRouter.put('/', requireRole('admin'), async (req, res) => {
   if (parsed.data.intervalHours !== undefined) update.interval_hours = parsed.data.intervalHours;
   if (parsed.data.scheduleDays !== undefined) update.schedule_days = parsed.data.scheduleDays;
   if (parsed.data.scheduleTime !== undefined) update.schedule_time = parsed.data.scheduleTime;
+  if (parsed.data.operationsSheetName !== undefined) update.operations_sheet_name = parsed.data.operationsSheetName;
   if (parsed.data.serviceAccountJson) {
     update.sa_key_enc = encrypt(parsed.data.serviceAccountJson);
   }
