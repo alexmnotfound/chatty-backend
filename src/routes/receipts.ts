@@ -99,7 +99,7 @@ async function linkOperation(
   }
 
   const { data: operador2 } = operador2Id
-    ? await supabase.from('company_members').select('name').eq('id', operador2Id).maybeSingle()
+    ? await supabase.from('company_members').select('name').eq('id', operador2Id).eq('company_id', companyId).maybeSingle()
     : { data: null };
 
   const montoFinal = link.pesosProveedor / link.tipoCambioProveedor;
@@ -144,7 +144,7 @@ async function linkOperation(
     monto_final: montoFinal,
     linked_at: new Date().toISOString(),
     link_error: null,
-  }).eq('id', operation.id);
+  }).eq('id', operation.id).eq('estado', 'pendiente'); // guard against a concurrent cancel between the fetch above and this write
 }
 
 receiptsRouter.get('/', async (req, res) => {
