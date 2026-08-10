@@ -29,6 +29,28 @@ export async function exportReceiptRow(
   operationLink: OperationLinkInput,
   operador2Id?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  // The whole body is wrapped: unlike the pre-merge two-phase flow (where an
+  // unexpected throw after the comprobante was already durably exported had
+  // to be swallowed to avoid masking that success), linking IS the export
+  // now — any unexpected throw here genuinely means the export failed, so it
+  // becomes a clean { ok: false } instead of an unhandled rejection reaching
+  // Express's global error handler.
+  try {
+    return await doExportReceiptRow(receipt, sheetsConfig, companyId, operationLink, operador2Id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error desconocido al vincular la operación';
+    console.error(`[receipts] Unexpected error exporting receipt ${receipt.id}:`, err);
+    return { ok: false, error: message };
+  }
+}
+
+async function doExportReceiptRow(
+  receipt: { id: string; extracted: Record<string, { value: string | null }> },
+  sheetsConfig: { spreadsheet_id: string; sa_key_enc: string; operations_sheet_name?: string | null },
+  companyId: string,
+  operationLink: OperationLinkInput,
+  operador2Id?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: operation } = await supabase
     .from('operations')
     .select('*, contact:contacts(name), operador:company_members!operador_id(name)')
