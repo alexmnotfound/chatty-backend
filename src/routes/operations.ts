@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase.js';
@@ -11,11 +12,15 @@ operationsRouter.use(requireAuth);
 operationsRouter.use(requireModule('comprobantes'));
 
 const createSchema = z.object({
-  conversationId: z.string().uuid(),
-  contactId: z.string().uuid(),
+  conversationId: z.string().uuid().optional(),
+  contactId: z.string().uuid().optional(),
+  contactName: z.string().trim().min(1).optional(),
   pesosCliente: z.number().positive(),
   tipoCambioCliente: z.number().positive(),
-});
+}).refine(
+  d => Boolean(d.contactId) !== Boolean(d.contactName),
+  { message: 'Debe indicar contactId o contactName, no ambos' }
+);
 
 operationsRouter.post('/', async (req, res) => {
   const companyId = getCompanyId(req);
@@ -23,23 +28,38 @@ operationsRouter.post('/', async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  // Verify the conversation and contact belong to this company — same
-  // ownership check pattern as tasksRouter.post('/').
-  const { data: conv } = await supabase
-    .from('conversations')
-    .select('id')
-    .eq('id', parsed.data.conversationId)
-    .eq('company_id', companyId)
-    .maybeSingle();
-  if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+  if (parsed.data.conversationId) {
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', parsed.data.conversationId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+  }
 
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('id')
-    .eq('id', parsed.data.contactId)
-    .eq('company_id', companyId)
-    .maybeSingle();
-  if (!contact) return res.status(404).json({ error: 'Cliente no encontrado' });
+  let contactId = parsed.data.contactId;
+  if (contactId) {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('id', contactId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (!contact) return res.status(404).json({ error: 'Cliente no encontrado' });
+  } else {
+    const { data: newContact, error: contactError } = await supabase
+      .from('contacts')
+      .insert({
+        company_id: companyId,
+        wa_id: `manual:${randomUUID()}`,
+        name: parsed.data.contactName,
+      })
+      .select('id')
+      .single();
+    if (contactError || !newContact) return res.status(500).json({ error: 'No se pudo crear el cliente' });
+    contactId = newContact.id;
+  }
 
   const usdCliente = parsed.data.pesosCliente / parsed.data.tipoCambioCliente;
 
@@ -47,15 +67,15 @@ operationsRouter.post('/', async (req, res) => {
     .from('operations')
     .insert({
       company_id: companyId,
-      conversation_id: parsed.data.conversationId,
-      contact_id: parsed.data.contactId,
+      conversation_id: parsed.data.conversationId ?? null,
+      contact_id: contactId,
       operador_id: member.id,
       pesos_cliente: parsed.data.pesosCliente,
       tipo_cambio_cliente: parsed.data.tipoCambioCliente,
       usd_cliente: usdCliente,
       estado: 'pendiente',
     })
-    .select()
+    .select('*, contact:contacts(id, name, wa_id), operador:company_members!operador_id(id, name), operador2:company_members!operador2_id(id, name)')
     .single();
   if (error || !data) return res.status(500).json({ error: 'No se pudo crear la operación' });
 
@@ -65,8 +85,8 @@ operationsRouter.post('/', async (req, res) => {
     action: 'operation.create',
     entityType: 'operation',
     entityId: data.id,
-    conversationId: parsed.data.conversationId,
-    meta: { pesosCliente: parsed.data.pesosCliente, tipoCambioCliente: parsed.data.tipoCambioCliente },
+    conversationId: parsed.data.conversationId ?? null,
+    meta: { pesosCliente: parsed.data.pesosCliente, tipoCambioCliente: parsed.data.tipoCambioCliente, contactName: parsed.data.contactName },
   });
 
   res.status(201).json(data);
