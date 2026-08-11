@@ -92,6 +92,22 @@ operationsRouter.post('/', async (req, res) => {
   res.status(201).json(data);
 });
 
+operationsRouter.get('/contacts', async (req, res) => {
+  const companyId = getCompanyId(req);
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (q.length < 2) return res.json([]);
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .select('id, name, wa_id')
+    .eq('company_id', companyId)
+    .ilike('name', `%${q}%`)
+    .order('name')
+    .limit(10);
+  if (error) return res.status(500).json({ error: 'No se pudieron buscar clientes' });
+  res.json(data ?? []);
+});
+
 operationsRouter.get('/', async (req, res) => {
   const companyId = getCompanyId(req);
   const estado = typeof req.query.estado === 'string' ? req.query.estado : undefined;
