@@ -4,9 +4,11 @@ import { supabase } from "../lib/supabase.js";
 import { z } from "zod";
 import { logActivity } from "../lib/activityLogger.js";
 import { getCompanyId } from "../middleware/tenant.js";
+import { requireModule } from "../middleware/modules.js";
 
 export const tasksRouter = Router();
 tasksRouter.use(requireAuth);
+tasksRouter.use(requireModule("tasks"));
 
 const createSchema = z.object({
   conversationId: z.string().min(1),

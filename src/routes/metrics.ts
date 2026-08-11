@@ -2,9 +2,11 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { supabase } from "../lib/supabase.js";
 import { getCompanyId } from "../middleware/tenant.js";
+import { requireModule } from "../middleware/modules.js";
 
 export const metricsRouter = Router();
 metricsRouter.use(requireAuth);
+metricsRouter.use(requireModule("dashboard"));
 
 function asInt(value: unknown, fallback: number) {
   const n = typeof value === "string" ? Number.parseInt(value, 10) : Number(value);
