@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { supabase } from '../lib/supabase.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getCompanyId } from '../middleware/tenant.js';
-import { appendOperationToSheet, type OperationRow } from '../services/sheets-exporter.js';
 import { requireModule } from '../middleware/modules.js';
 
 export const receiptsRouter = Router();
@@ -17,43 +16,36 @@ export type OperationLinkInput = {
   monedaFinal: 'USD' | 'USDT';
 };
 
-// Links a comprobante to a pendiente operación and appends the merged row to
-// the Operaciones sheet. This IS the export now — there is no separate
-// standalone comprobante-sheet step anymore. A failure here is reflected on
-// both operations.link_error and receipts.export_error, so it's visible from
-// either side without cross-referencing.
+// Links a comprobante to a pendiente operación. This ONLY links — it no
+// longer exports to Google Sheets (that's now a separate, manual, bulk
+// action: POST /operations/export-to-sheets). A failure here means the
+// operación/receipt data itself was invalid (already validated with
+// 404/409 in the route handler before this is called), so this rarely
+// fails; if it does, it's a genuine unexpected DB error.
 export async function exportReceiptRow(
   receipt: { id: string; extracted: Record<string, { value: string | null }> },
-  sheetsConfig: { spreadsheet_id: string; sa_key_enc: string; operations_sheet_name?: string | null },
   companyId: string,
   operationLink: OperationLinkInput,
   operador2Id?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  // The whole body is wrapped: unlike the pre-merge two-phase flow (where an
-  // unexpected throw after the comprobante was already durably exported had
-  // to be swallowed to avoid masking that success), linking IS the export
-  // now — any unexpected throw here genuinely means the export failed, so it
-  // becomes a clean { ok: false } instead of an unhandled rejection reaching
-  // Express's global error handler.
   try {
-    return await doExportReceiptRow(receipt, sheetsConfig, companyId, operationLink, operador2Id);
+    return await doExportReceiptRow(receipt, companyId, operationLink, operador2Id);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido al vincular la operación';
-    console.error(`[receipts] Unexpected error exporting receipt ${receipt.id}:`, err);
+    console.error(`[receipts] Unexpected error linking receipt ${receipt.id}:`, err);
     return { ok: false, error: message };
   }
 }
 
 async function doExportReceiptRow(
   receipt: { id: string; extracted: Record<string, { value: string | null }> },
-  sheetsConfig: { spreadsheet_id: string; sa_key_enc: string; operations_sheet_name?: string | null },
   companyId: string,
   operationLink: OperationLinkInput,
   operador2Id?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: operation } = await supabase
     .from('operations')
-    .select('*, contact:contacts(name), operador:company_members!operador_id(name)')
+    .select('id, estado')
     .eq('id', operationLink.operationId)
     .eq('company_id', companyId)
     .maybeSingle();
@@ -62,42 +54,7 @@ async function doExportReceiptRow(
     return { ok: false, error: 'Esta operación ya no está disponible' };
   }
 
-  const { data: operador2 } = operador2Id
-    ? await supabase.from('company_members').select('name').eq('id', operador2Id).eq('company_id', companyId).maybeSingle()
-    : { data: null };
-
   const montoFinal = operationLink.pesosProveedor / operationLink.tipoCambioProveedor;
-
-  if (!sheetsConfig.operations_sheet_name) {
-    const message = 'No hay una hoja de Operaciones configurada en Ajustes › Google Sheets';
-    await supabase.from('operations').update({ link_error: message }).eq('id', operation.id);
-    await supabase.from('receipts').update({ export_error: message }).eq('id', receipt.id);
-    return { ok: false, error: message };
-  }
-
-  try {
-    const operationRow: OperationRow = {
-      fecha: new Date().toLocaleString('es-AR'),
-      cliente: operation.contact?.name ?? '',
-      operador: operation.operador?.name ?? '',
-      pesosCliente: String(operation.pesos_cliente),
-      tcCliente: String(operation.tipo_cambio_cliente),
-      usdCliente: String(operation.usd_cliente),
-      operador2: operador2?.name ?? '',
-      pesosProveedor: String(operationLink.pesosProveedor),
-      tcProveedor: String(operationLink.tipoCambioProveedor),
-      montoFinal: String(montoFinal),
-    };
-    await appendOperationToSheet(
-      { spreadsheetId: sheetsConfig.spreadsheet_id, sheetName: sheetsConfig.operations_sheet_name, saKeyEnc: sheetsConfig.sa_key_enc },
-      operationRow,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error desconocido al exportar la operación';
-    await supabase.from('operations').update({ link_error: message }).eq('id', operation.id);
-    await supabase.from('receipts').update({ export_error: message }).eq('id', receipt.id);
-    return { ok: false, error: message };
-  }
 
   await supabase.from('operations').update({
     estado: 'vinculada',
@@ -108,13 +65,10 @@ async function doExportReceiptRow(
     moneda_final: operationLink.monedaFinal,
     monto_final: montoFinal,
     linked_at: new Date().toISOString(),
-    link_error: null,
   }).eq('id', operation.id).eq('estado', 'pendiente'); // guard against a concurrent cancel between the fetch above and this write
 
   await supabase.from('receipts').update({
-    estado: 'exportado',
-    exported_at: new Date().toISOString(),
-    export_error: null,
+    estado: 'revisado',
   }).eq('id', receipt.id);
 
   return { ok: true };
@@ -212,15 +166,6 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     .maybeSingle();
   if (receiptErr || !receipt) return res.status(404).json({ error: 'No encontrado' });
 
-  const { data: sheetsConfig, error: configErr } = await supabase
-    .from('sheets_config')
-    .select('*')
-    .eq('company_id', companyId)
-    .maybeSingle();
-  if (configErr || !sheetsConfig) {
-    return res.status(400).json({ error: 'Configurá Google Sheets antes de exportar' });
-  }
-
   const { data: op } = await supabase
     .from('operations')
     .select('id, estado')
@@ -244,10 +189,10 @@ receiptsRouter.post('/:id/export', async (req, res) => {
     return res.status(409).json({ error: 'Este comprobante ya está vinculado a otra operación' });
   }
 
-  const result = await exportReceiptRow(receipt, sheetsConfig, companyId, parsed.data.operationLink, member?.id);
+  const result = await exportReceiptRow(receipt, companyId, parsed.data.operationLink, member?.id);
   if (!result.ok) {
-    console.error(`[receipts] Export failed for receipt ${receipt.id}:`, result.error);
-    return res.status(502).json({ error: 'No se pudo vincular y exportar la operación' });
+    console.error(`[receipts] Link failed for receipt ${receipt.id}:`, result.error);
+    return res.status(502).json({ error: 'No se pudo vincular la operación' });
   }
 
   const { data: updated } = await supabase.from('receipts').select('*').eq('id', receipt.id).maybeSingle();
