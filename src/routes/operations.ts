@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getCompanyId } from '../middleware/tenant.js';
 import { requireModule } from '../middleware/modules.js';
 import { logActivity } from '../lib/activityLogger.js';
+import { appendOperationToSheet, type OperationRow } from '../services/sheets-exporter.js';
 
 export const operationsRouter = Router();
 operationsRouter.use(requireAuth);
@@ -109,6 +110,85 @@ operationsRouter.get('/contacts', async (req, res) => {
     .limit(10);
   if (error) return res.status(500).json({ error: 'No se pudieron buscar clientes' });
   res.json(data ?? []);
+});
+
+const exportToSheetsSchema = z.object({
+  operationIds: z.array(z.string().uuid()).min(1),
+});
+
+operationsRouter.post('/export-to-sheets', async (req, res) => {
+  const companyId = getCompanyId(req);
+  const parsed = exportToSheetsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { data: sheetsConfig } = await supabase
+    .from('sheets_config')
+    .select('spreadsheet_id, operations_sheet_name, sa_key_enc')
+    .eq('company_id', companyId)
+    .maybeSingle();
+
+  if (!sheetsConfig?.operations_sheet_name) {
+    const message = 'No hay una hoja de Operaciones configurada en Ajustes › Google Sheets';
+    const results = parsed.data.operationIds.map(id => ({ id, ok: false as const, error: message }));
+    return res.json(results);
+  }
+
+  const results: { id: string; ok: boolean; error?: string }[] = [];
+
+  for (const operationId of parsed.data.operationIds) {
+    const { data: operation } = await supabase
+      .from('operations')
+      .select('*, contact:contacts(name), operador:company_members!operador_id(name), operador2:company_members!operador2_id(name)')
+      .eq('id', operationId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (!operation || operation.estado !== 'vinculada' || operation.exported_at) {
+      results.push({ id: operationId, ok: false, error: 'No es una operación vinculada pendiente de exportar' });
+      continue;
+    }
+
+    const operationRow: OperationRow = {
+      fecha: new Date().toLocaleString('es-AR'),
+      cliente: operation.contact?.name ?? '',
+      operador: operation.operador?.name ?? '',
+      pesosCliente: String(operation.pesos_cliente),
+      tcCliente: String(operation.tipo_cambio_cliente),
+      usdCliente: String(operation.usd_cliente),
+      operador2: operation.operador2?.name ?? '',
+      pesosProveedor: String(operation.pesos_proveedor),
+      tcProveedor: String(operation.tipo_cambio_proveedor),
+      montoFinal: String(operation.monto_final),
+    };
+
+    try {
+      await appendOperationToSheet(
+        { spreadsheetId: sheetsConfig.spreadsheet_id, sheetName: sheetsConfig.operations_sheet_name, saKeyEnc: sheetsConfig.sa_key_enc },
+        operationRow,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error desconocido al exportar la operación';
+      await supabase.from('operations').update({ link_error: message }).eq('id', operationId);
+      if (operation.receipt_id) {
+        await supabase.from('receipts').update({ export_error: message }).eq('id', operation.receipt_id);
+      }
+      results.push({ id: operationId, ok: false, error: message });
+      continue;
+    }
+
+    await supabase.from('operations')
+      .update({ exported_at: new Date().toISOString(), link_error: null })
+      .eq('id', operationId)
+      .is('exported_at', null); // guard against a concurrent double-export
+    if (operation.receipt_id) {
+      await supabase.from('receipts')
+        .update({ estado: 'exportado', exported_at: new Date().toISOString(), export_error: null })
+        .eq('id', operation.receipt_id);
+    }
+    results.push({ id: operationId, ok: true });
+  }
+
+  res.json(results);
 });
 
 operationsRouter.get('/', async (req, res) => {
