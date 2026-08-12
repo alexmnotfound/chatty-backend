@@ -136,14 +136,21 @@ operationsRouter.post('/export-to-sheets', async (req, res) => {
   const results: { id: string; ok: boolean; error?: string }[] = [];
 
   for (const operationId of parsed.data.operationIds) {
+    // Atomically claim the operation (set exported_at) BEFORE calling the real Sheets API.
+    // This is both the tenant-scoping guard and the concurrency guard: Postgres serializes
+    // concurrent UPDATEs to the same row, so only one concurrent request can ever match
+    // `exported_at IS NULL` for a given id — the other loses the race here, before Sheets is called.
     const { data: operation } = await supabase
       .from('operations')
-      .select('*, contact:contacts(name), operador:company_members!operador_id(name), operador2:company_members!operador2_id(name)')
+      .update({ exported_at: new Date().toISOString() })
       .eq('id', operationId)
       .eq('company_id', companyId)
+      .eq('estado', 'vinculada')
+      .is('exported_at', null)
+      .select('*, contact:contacts(name), operador:company_members!operador_id(name), operador2:company_members!operador2_id(name)')
       .maybeSingle();
 
-    if (!operation || operation.estado !== 'vinculada' || operation.exported_at) {
+    if (!operation) {
       results.push({ id: operationId, ok: false, error: 'No es una operación vinculada pendiente de exportar' });
       continue;
     }
@@ -168,7 +175,8 @@ operationsRouter.post('/export-to-sheets', async (req, res) => {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error desconocido al exportar la operación';
-      await supabase.from('operations').update({ link_error: message }).eq('id', operationId);
+      // Un-claim: roll exported_at back to null so the row remains retryable later.
+      await supabase.from('operations').update({ exported_at: null, link_error: message }).eq('id', operationId);
       if (operation.receipt_id) {
         await supabase.from('receipts').update({ export_error: message }).eq('id', operation.receipt_id);
       }
@@ -176,10 +184,8 @@ operationsRouter.post('/export-to-sheets', async (req, res) => {
       continue;
     }
 
-    await supabase.from('operations')
-      .update({ exported_at: new Date().toISOString(), link_error: null })
-      .eq('id', operationId)
-      .is('exported_at', null); // guard against a concurrent double-export
+    // exported_at was already set atomically by the claim above; just clear link_error.
+    await supabase.from('operations').update({ link_error: null }).eq('id', operationId);
     if (operation.receipt_id) {
       await supabase.from('receipts')
         .update({ estado: 'exportado', exported_at: new Date().toISOString(), export_error: null })
