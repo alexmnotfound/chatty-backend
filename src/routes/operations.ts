@@ -17,6 +17,8 @@ const createSchema = z.object({
   contactName: z.string().trim().min(1).optional(),
   pesosCliente: z.number().positive(),
   tipoCambioCliente: z.number().positive(),
+  monedaCliente: z.enum(['USD', 'USDT']).optional().default('USD'),
+  usdCliente: z.number().positive().optional(),
 }).refine(
   d => Boolean(d.contactId) !== Boolean(d.contactName),
   { message: 'Debe indicar contactId o contactName, no ambos' }
@@ -61,7 +63,7 @@ operationsRouter.post('/', async (req, res) => {
     contactId = newContact.id;
   }
 
-  const usdCliente = parsed.data.pesosCliente / parsed.data.tipoCambioCliente;
+  const usdCliente = parsed.data.usdCliente ?? (parsed.data.pesosCliente / parsed.data.tipoCambioCliente);
 
   const { data, error } = await supabase
     .from('operations')
@@ -73,6 +75,7 @@ operationsRouter.post('/', async (req, res) => {
       pesos_cliente: parsed.data.pesosCliente,
       tipo_cambio_cliente: parsed.data.tipoCambioCliente,
       usd_cliente: usdCliente,
+      moneda_cliente: parsed.data.monedaCliente,
       estado: 'pendiente',
     })
     .select('*, contact:contacts(id, name, wa_id), operador:company_members!operador_id(id, name), operador2:company_members!operador2_id(id, name)')
