@@ -225,6 +225,53 @@ operationsRouter.get('/:id', async (req, res) => {
   res.json(data);
 });
 
+const updateSchema = z.object({
+  pesosCliente: z.number().positive().optional(),
+  tipoCambioCliente: z.number().positive().optional(),
+  monedaCliente: z.enum(['USD', 'USDT']).optional(),
+  usdCliente: z.number().positive().optional(),
+});
+
+operationsRouter.patch('/:id', async (req, res) => {
+  const companyId = getCompanyId(req);
+  const parsed = updateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { data: existing } = await supabase
+    .from('operations')
+    .select('id, estado, pesos_cliente, tipo_cambio_cliente')
+    .eq('id', req.params.id)
+    .eq('company_id', companyId)
+    .maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'No encontrada' });
+  if (existing.estado !== 'pendiente') return res.status(409).json({ error: 'Solo se pueden editar operaciones pendientes' });
+
+  const update: Record<string, unknown> = {};
+  if (parsed.data.pesosCliente !== undefined) update.pesos_cliente = parsed.data.pesosCliente;
+  if (parsed.data.tipoCambioCliente !== undefined) update.tipo_cambio_cliente = parsed.data.tipoCambioCliente;
+  if (parsed.data.monedaCliente !== undefined) update.moneda_cliente = parsed.data.monedaCliente;
+
+  if (parsed.data.usdCliente !== undefined) {
+    update.usd_cliente = parsed.data.usdCliente;
+  } else if (parsed.data.pesosCliente !== undefined || parsed.data.tipoCambioCliente !== undefined) {
+    const pesos = parsed.data.pesosCliente ?? existing.pesos_cliente;
+    const tc = parsed.data.tipoCambioCliente ?? existing.tipo_cambio_cliente;
+    update.usd_cliente = pesos / tc;
+  }
+
+  const { data, error } = await supabase
+    .from('operations')
+    .update(update)
+    .eq('id', req.params.id)
+    .eq('company_id', companyId)
+    .eq('estado', 'pendiente') // guard against a concurrent link/cancel between the fetch above and this write
+    .select('*, contact:contacts(id, name, wa_id), operador:company_members!operador_id(id, name), operador2:company_members!operador2_id(id, name)')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: 'No se pudo actualizar la operación' });
+  if (!data) return res.status(409).json({ error: 'La operación ya no está pendiente' });
+  res.json(data);
+});
+
 operationsRouter.post('/:id/cancel', async (req, res) => {
   const companyId = getCompanyId(req);
   const { data, error } = await supabase
